@@ -1,0 +1,373 @@
+openapi: "3.0.3"
+info:
+  title: timetrack API
+  description: Lokale Single-User-API des Arbeitszeit-Trackers. Dauerangaben in Minuten, Zeitpunkte als RFC3339, Kalendertage als JJJJ-MM-TT.
+  version: "1.0"
+paths:
+  /api/status:
+    get:
+      operationId: getStatus
+      responses:
+        "200":
+          description: Aktueller Zustand
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+        default: { $ref: "#/components/responses/Error" }
+  /api/tracking/start:
+    post:
+      operationId: trackingStart
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project: { type: string }
+      responses:
+        "204": { description: Gestartet }
+        default: { $ref: "#/components/responses/Error" }
+  /api/tracking/stop:
+    post:
+      operationId: trackingStop
+      responses:
+        "200":
+          description: Gestoppt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [warnings]
+                properties:
+                  warnings:
+                    type: array
+                    items: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /api/tracking/pause:
+    post:
+      operationId: trackingPause
+      responses:
+        "204": { description: Pause begonnen }
+        default: { $ref: "#/components/responses/Error" }
+  /api/tracking/resume:
+    post:
+      operationId: trackingResume
+      responses:
+        "204": { description: Fortgesetzt }
+        default: { $ref: "#/components/responses/Error" }
+  /api/tracking/switch:
+    post:
+      operationId: trackingSwitch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project]
+              properties:
+                project: { type: string }
+      responses:
+        "204": { description: Gewechselt }
+        default: { $ref: "#/components/responses/Error" }
+  /api/entries:
+    get:
+      operationId: listEntries
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: Einträge im Zeitraum
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Entry" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EntryInput" }
+      responses:
+        "201":
+          description: Angelegt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { type: integer, format: int64 }
+        default: { $ref: "#/components/responses/Error" }
+  /api/entries/{id}:
+    put:
+      operationId: updateEntry
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EntryPatch" }
+      responses:
+        "204": { description: Geändert }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteEntry
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "204": { description: Gelöscht }
+        default: { $ref: "#/components/responses/Error" }
+  /api/projects:
+    get:
+      operationId: listProjects
+      parameters:
+        - { name: includeArchived, in: query, required: false, schema: { type: boolean } }
+      responses:
+        "200":
+          description: Projekte
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Project" }
+        default: { $ref: "#/components/responses/Error" }
+  /api/projects/{id}:
+    put:
+      operationId: updateProject
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                archived: { type: boolean }
+      responses:
+        "204": { description: Geändert }
+        default: { $ref: "#/components/responses/Error" }
+  /api/absences:
+    get:
+      operationId: listAbsences
+      parameters:
+        - { name: year, in: query, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Abwesenheiten des Jahres
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Absence" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createAbsence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, from]
+              properties:
+                type: { type: string, enum: [urlaub, krank, feiertag] }
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+                half: { type: boolean }
+                note: { type: string }
+      responses:
+        "201":
+          description: Eingetragen
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [added]
+                properties:
+                  added:
+                    type: array
+                    items: { type: string, format: date }
+        default: { $ref: "#/components/responses/Error" }
+  /api/absences/{id}:
+    delete:
+      operationId: deleteAbsence
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "204": { description: Gelöscht }
+        default: { $ref: "#/components/responses/Error" }
+  /api/holidays:
+    get:
+      operationId: getHolidays
+      parameters:
+        - { name: year, in: query, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Berechnete Feiertage (Datum → Name)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /api/report:
+    get:
+      operationId: getReport
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: Auswertung
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+        default: { $ref: "#/components/responses/Error" }
+  /api/config:
+    get:
+      operationId: getConfig
+      responses:
+        "200":
+          description: Einstellungen
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Config" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: putConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Config" }
+      responses:
+        "204": { description: Gespeichert }
+        default: { $ref: "#/components/responses/Error" }
+components:
+  responses:
+    Error:
+      description: Fehler
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [message]
+            properties:
+              message: { type: string }
+  schemas:
+    Status:
+      type: object
+      required: [state, todaySummary, saldoMinutes]
+      properties:
+        state: { type: string, enum: [idle, working, paused] }
+        project: { type: string }
+        since: { type: string, format: date-time }
+        openMinutes: { type: integer }
+        longSession: { type: boolean }
+        todaySummary: { $ref: "#/components/schemas/DaySummary" }
+        saldoMinutes: { type: integer }
+    DaySummary:
+      type: object
+      required: [date, workedMinutes, breakMinutes, targetMinutes, creditMinutes, diffMinutes, warnings]
+      properties:
+        date: { type: string, format: date }
+        workedMinutes: { type: integer }
+        breakMinutes: { type: integer }
+        targetMinutes: { type: integer }
+        creditMinutes: { type: integer }
+        diffMinutes: { type: integer }
+        absenceType: { type: string }
+        fraction: { type: number }
+        holidayName: { type: string }
+        warnings:
+          type: array
+          items: { type: string }
+    Entry:
+      type: object
+      required: [id, kind, start, open]
+      properties:
+        id: { type: integer, format: int64 }
+        kind: { type: string, enum: [work, break] }
+        project: { type: string }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        open: { type: boolean }
+        note: { type: string }
+    EntryInput:
+      type: object
+      required: [kind, start, end]
+      properties:
+        kind: { type: string, enum: [work, break] }
+        project: { type: string }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        note: { type: string }
+    EntryPatch:
+      type: object
+      properties:
+        kind: { type: string, enum: [work, break] }
+        project: { type: string }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        note: { type: string }
+    Project:
+      type: object
+      required: [id, name, archived]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        archived: { type: boolean }
+    Absence:
+      type: object
+      required: [id, date, type, fraction]
+      properties:
+        id: { type: integer, format: int64 }
+        date: { type: string, format: date }
+        type: { type: string, enum: [urlaub, krank, feiertag] }
+        fraction: { type: number }
+        note: { type: string }
+    ProjectShare:
+      type: object
+      required: [id, name, minutes, percent]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        minutes: { type: integer }
+        percent: { type: number }
+    Report:
+      type: object
+      required: [from, to, days, totalWorkedMinutes, totalTargetMinutes, totalCreditMinutes, saldoMinutes, projects]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/DaySummary" }
+        totalWorkedMinutes: { type: integer }
+        totalTargetMinutes: { type: integer }
+        totalCreditMinutes: { type: integer }
+        saldoMinutes: { type: integer }
+        projects:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectShare" }
+    Config:
+      type: object
+      required: [weeklyHours, weekdayHours, bundesland, startDate]
+      properties:
+        weeklyHours: { type: number }
+        weekdayHours:
+          type: object
+          description: Stunden je Wochentag (mon..sun)
+          additionalProperties: { type: number }
+        bundesland: { type: string }
+        augsburg: { type: boolean }
+        katholisch: { type: boolean }
+        startDate: { type: string, format: date }

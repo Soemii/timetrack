@@ -4,10 +4,12 @@ go 1.26.3
 
 require (
 	github.com/golang-migrate/migrate/v4 v4.19.1
+	github.com/oapi-codegen/runtime v1.6.0
 	modernc.org/sqlite v1.54.0
 )
 
 require (
+	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
