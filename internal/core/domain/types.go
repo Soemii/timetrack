@@ -76,6 +76,12 @@ func (d Date) Before(o Date) bool {
 
 func (d Date) After(o Date) bool { return o.Before(d) }
 
+type Project struct {
+	ID       int64
+	Name     string
+	Archived bool
+}
+
 type AbsenceType string
 
 const (
