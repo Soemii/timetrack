@@ -5,6 +5,7 @@ Persönlicher Arbeitszeit-Tracker als ein Go-Binary: CLI + lokale Weboberfläche
 ## Features
 
 - **Tracking:** `start` / `stop` / `pause` / `resume` / `switch <projekt>` — Projekt-Zuordnung beim Start, Wechsel im Lauf, alles nachträglich änderbar.
+- **Mehrere Projekte pro Eintrag:** `start acme+intern` — die Zeit wird gleichmäßig auf alle angegebenen Projekte aufgeteilt (bei zweien 50/50). Funktioniert auch bei `switch`, `add`/`edit --project` und im Web-Formular.
 - **Sollzeit:** Wochenstunden + abweichende Tage (z.B. Freitag kürzer), eingerichtet per Wizard.
 - **ArbZG §4:** Pausen unter 15 Min. zählen automatisch als Arbeitszeit. Warnungen bei fehlender Pflichtpause (30 Min. ab 6h, 45 Min. über 9h) und über 10h/Tag (§3) — nur Hinweise, nichts wird blockiert.
 - **Abwesenheiten:** Urlaub (auch halbe Tage), Krankheit, manuelle Feiertage — zählen als Soll erfüllt. Gesetzliche Feiertage werden automatisch pro Bundesland berechnet (alle 16, inkl. Augsburger Friedensfest und Mariä Himmelfahrt in BY).

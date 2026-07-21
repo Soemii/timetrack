@@ -22,12 +22,16 @@ type Config struct {
 }
 
 type Entry struct {
-	ID        int64
-	Kind      string
-	ProjectID sql.NullInt64
-	StartTs   int64
-	EndTs     sql.NullInt64
-	Note      sql.NullString
+	ID      int64
+	Kind    string
+	StartTs int64
+	EndTs   sql.NullInt64
+	Note    sql.NullString
+}
+
+type EntryProject struct {
+	EntryID   int64
+	ProjectID int64
 }
 
 type Project struct {

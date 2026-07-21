@@ -105,34 +105,47 @@ const (
 	StatePaused  TrackState = "paused"
 )
 
-func (s *Service) resolveProject(name string) (*int64, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, nil
+// resolveProjects parst eine Projektangabe wie "acme" oder "acme+intern"
+// (Zeit wird gleichmäßig aufgeteilt), legt unbekannte Projekte an und
+// dedupliziert case-insensitiv. Leer → nil (ohne Projekt).
+func (s *Service) resolveProjects(spec string) ([]int64, error) {
+	var ids []int64
+	seen := map[string]bool{}
+	for part := range strings.SplitSeq(spec, "+") {
+		name := strings.TrimSpace(part)
+		if name == "" || seen[strings.ToLower(name)] {
+			continue
+		}
+		seen[strings.ToLower(name)] = true
+		p, err := s.repo.ProjectByName(name)
+		if err != nil {
+			return nil, err
+		}
+		if p != nil {
+			ids = append(ids, p.ID)
+			continue
+		}
+		id, err := s.repo.CreateProject(name, s.now())
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
 	}
-	p, err := s.repo.ProjectByName(name)
-	if err != nil {
-		return nil, err
-	}
-	if p != nil {
-		return &p.ID, nil
-	}
-	id, err := s.repo.CreateProject(name, s.now())
-	if err != nil {
-		return nil, err
-	}
-	return &id, nil
+	return ids, nil
 }
 
-func (s *Service) projectName(pid *int64) string {
-	if pid == nil {
-		return ""
+// projectLabel liefert die Projektnamen eines Segments, mit "+" verbunden.
+func (s *Service) projectLabel(ids []int64) string {
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		p, err := s.repo.GetProject(id)
+		if err != nil {
+			names = append(names, "?")
+			continue
+		}
+		names = append(names, p.Name)
 	}
-	p, err := s.repo.GetProject(*pid)
-	if err != nil {
-		return "?"
-	}
-	return p.Name
+	return strings.Join(names, "+")
 }
 
 // closeOrDrop schließt ein offenes Segment; Segmente ohne Dauer (Start ==
@@ -153,15 +166,15 @@ func (s *Service) Start(project string) error {
 	if open != nil {
 		if open.Kind == domain.KindWork {
 			return fmt.Errorf("%w: bereits gestartet (Projekt %q seit %s). Projektwechsel mit 'timetrack switch'",
-				ErrConflict, s.projectName(open.ProjectID), open.Start.In(s.loc).Format("15:04"))
+				ErrConflict, s.projectLabel(open.ProjectIDs), open.Start.In(s.loc).Format("15:04"))
 		}
 		return fmt.Errorf("%w: Pause läuft — fortsetzen mit 'timetrack resume'", ErrConflict)
 	}
-	pid, err := s.resolveProject(project)
+	pids, err := s.resolveProjects(project)
 	if err != nil {
 		return err
 	}
-	_, err = s.repo.CreateEntry(domain.Segment{Kind: domain.KindWork, ProjectID: pid, Start: s.now(), Open: true})
+	_, err = s.repo.CreateEntry(domain.Segment{Kind: domain.KindWork, ProjectIDs: pids, Start: s.now(), Open: true})
 	return err
 }
 
@@ -180,7 +193,7 @@ func (s *Service) Pause() error {
 	if err := s.closeOrDrop(open, now); err != nil {
 		return err
 	}
-	_, err = s.repo.CreateEntry(domain.Segment{Kind: domain.KindBreak, ProjectID: open.ProjectID, Start: now, Open: true})
+	_, err = s.repo.CreateEntry(domain.Segment{Kind: domain.KindBreak, ProjectIDs: open.ProjectIDs, Start: now, Open: true})
 	return err
 }
 
@@ -196,7 +209,7 @@ func (s *Service) Resume() error {
 	if err := s.closeOrDrop(open, now); err != nil {
 		return err
 	}
-	_, err = s.repo.CreateEntry(domain.Segment{Kind: domain.KindWork, ProjectID: open.ProjectID, Start: now, Open: true})
+	_, err = s.repo.CreateEntry(domain.Segment{Kind: domain.KindWork, ProjectIDs: open.ProjectIDs, Start: now, Open: true})
 	return err
 }
 
@@ -211,7 +224,7 @@ func (s *Service) Switch(project string) error {
 	if open == nil || open.Kind != domain.KindWork {
 		return fmt.Errorf("%w: nicht am Arbeiten — zuerst 'timetrack start' bzw. 'timetrack resume'", ErrConflict)
 	}
-	pid, err := s.resolveProject(project)
+	pids, err := s.resolveProjects(project)
 	if err != nil {
 		return err
 	}
@@ -219,7 +232,7 @@ func (s *Service) Switch(project string) error {
 	if err := s.closeOrDrop(open, now); err != nil {
 		return err
 	}
-	_, err = s.repo.CreateEntry(domain.Segment{Kind: domain.KindWork, ProjectID: pid, Start: now, Open: true})
+	_, err = s.repo.CreateEntry(domain.Segment{Kind: domain.KindWork, ProjectIDs: pids, Start: now, Open: true})
 	return err
 }
 
@@ -265,7 +278,7 @@ func (s *Service) Status() (Status, error) {
 		} else {
 			st.State = StatePaused
 		}
-		st.Project = s.projectName(open.ProjectID)
+		st.Project = s.projectLabel(open.ProjectIDs)
 		st.Since = open.Start
 		st.OpenDuration = now.Sub(open.Start)
 		st.LongSession = st.OpenDuration > 12*time.Hour
@@ -316,11 +329,11 @@ func (s *Service) validateEntry(e domain.Segment) error {
 }
 
 func (s *Service) AddEntry(kind domain.Kind, project string, start, end time.Time, note string) (int64, error) {
-	pid, err := s.resolveProject(project)
+	pids, err := s.resolveProjects(project)
 	if err != nil {
 		return 0, err
 	}
-	e := domain.Segment{Kind: kind, ProjectID: pid, Start: start, End: end, Note: note}
+	e := domain.Segment{Kind: kind, ProjectIDs: pids, Start: start, End: end, Note: note}
 	if err := s.validateEntry(e); err != nil {
 		return 0, err
 	}
@@ -345,7 +358,7 @@ func (s *Service) UpdateEntry(id int64, p EntryPatch) error {
 		e.Kind = *p.Kind
 	}
 	if p.Project != nil {
-		if e.ProjectID, err = s.resolveProject(*p.Project); err != nil {
+		if e.ProjectIDs, err = s.resolveProjects(*p.Project); err != nil {
 			return err
 		}
 	}

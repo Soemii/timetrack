@@ -11,11 +11,10 @@ func TestBuildDayAndSaldo(t *testing.T) {
 	mon := Date{2026, time.July, 20}
 
 	// 09:00–12:00 Projekt 1, 12:00–12:10 Pause (reklassifiziert), 12:10–17:00 Projekt 2
-	p1, p2 := int64(1), int64(2)
 	segs := []Segment{
-		{Kind: KindWork, ProjectID: &p1, Start: ts("2026-07-20 09:00"), End: ts("2026-07-20 12:00")},
-		{Kind: KindBreak, ProjectID: &p1, Start: ts("2026-07-20 12:00"), End: ts("2026-07-20 12:10")},
-		{Kind: KindWork, ProjectID: &p2, Start: ts("2026-07-20 12:10"), End: ts("2026-07-20 17:00")},
+		{Kind: KindWork, ProjectIDs: []int64{1}, Start: ts("2026-07-20 09:00"), End: ts("2026-07-20 12:00")},
+		{Kind: KindBreak, ProjectIDs: []int64{1}, Start: ts("2026-07-20 12:00"), End: ts("2026-07-20 12:10")},
+		{Kind: KindWork, ProjectIDs: []int64{2}, Start: ts("2026-07-20 12:10"), End: ts("2026-07-20 17:00")},
 	}
 	byDay := SplitAtMidnights(Effective(segs), berlin)
 	day := BuildDay(mon, byDay[mon], nil, "", wh)

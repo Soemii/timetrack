@@ -60,11 +60,15 @@ func Aggregate(segs []Segment) DayWork {
 		switch s.Kind {
 		case KindWork:
 			w.Worked += s.Duration()
-			var pid int64
-			if s.ProjectID != nil {
-				pid = *s.ProjectID
+			if len(s.ProjectIDs) == 0 {
+				w.PerProject[0] += s.Duration()
+				continue
 			}
-			w.PerProject[pid] += s.Duration()
+			// Zeit gleichmäßig auf alle Projekte des Segments aufteilen.
+			share := s.Duration() / time.Duration(len(s.ProjectIDs))
+			for _, pid := range s.ProjectIDs {
+				w.PerProject[pid] += share
+			}
 		case KindBreak:
 			w.Break += s.Duration()
 		}

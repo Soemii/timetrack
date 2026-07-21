@@ -67,7 +67,7 @@ func call(t *testing.T, srv *httptest.Server, method, path string, body any) (*h
 func TestTrackingFlow(t *testing.T) {
 	srv, now := testServer(t)
 
-	resp, body := call(t, srv, "POST", "/api/tracking/start", map[string]string{"project": "acme"})
+	resp, body := call(t, srv, "POST", "/api/tracking/start", map[string][]string{"projects": {"acme", "intern"}})
 	if resp.StatusCode != 204 {
 		t.Fatalf("start: %d %s", resp.StatusCode, body)
 	}
@@ -103,7 +103,7 @@ func TestTrackingFlow(t *testing.T) {
 	if err := json.Unmarshal(body, &st); err != nil {
 		t.Fatal(err)
 	}
-	if st.State != "working" || st.Project != "acme" {
+	if st.State != "working" || st.Project != "acme+intern" {
 		t.Errorf("status: %+v", st)
 	}
 	if st.TodaySummary.WorkedMinutes != 180 || st.TodaySummary.BreakMinutes != 30 {
@@ -122,7 +122,7 @@ func TestEntriesCRUDAndReport(t *testing.T) {
 
 	mk := func(from, to int, project string) int64 {
 		resp, body := call(t, srv, "POST", "/api/entries", map[string]any{
-			"kind": "work", "project": project,
+			"kind": "work", "projects": []string{project},
 			"start": day.Add(time.Duration(from) * time.Hour).Format(time.RFC3339),
 			"end":   day.Add(time.Duration(to) * time.Hour).Format(time.RFC3339),
 		})
@@ -149,13 +149,13 @@ func TestEntriesCRUDAndReport(t *testing.T) {
 	}
 
 	// Edit: Projekt ändern
-	resp, body := call(t, srv, "PUT", fmt.Sprintf("/api/entries/%d", id), map[string]any{"project": "umbau"})
+	resp, body := call(t, srv, "PUT", fmt.Sprintf("/api/entries/%d", id), map[string]any{"projects": []string{"umbau", "acme"}})
 	if resp.StatusCode != 204 {
 		t.Fatalf("updateEntry: %d %s", resp.StatusCode, body)
 	}
 
 	// Nicht existent → 404
-	resp, _ = call(t, srv, "PUT", "/api/entries/999", map[string]any{"project": "x"})
+	resp, _ = call(t, srv, "PUT", "/api/entries/999", map[string]any{"projects": []string{"x"}})
 	if resp.StatusCode != 404 {
 		t.Errorf("update 999: %d, want 404", resp.StatusCode)
 	}
@@ -185,7 +185,12 @@ func TestEntriesCRUDAndReport(t *testing.T) {
 	if rep.TotalWorkedMinutes != 8*60 {
 		t.Errorf("TotalWorked = %d, want 480", rep.TotalWorkedMinutes)
 	}
-	if len(rep.Projects) != 2 {
+	// Eintrag 1 (6h) auf umbau+acme gesplittet, Eintrag 2 (2h) intern
+	pct := map[string]float32{}
+	for _, p := range rep.Projects {
+		pct[p.Name] = p.Percent
+	}
+	if len(rep.Projects) != 3 || pct["umbau"] != 37.5 || pct["acme"] != 37.5 || pct["intern"] != 25 {
 		t.Errorf("Projekte: %+v", rep.Projects)
 	}
 }

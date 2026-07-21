@@ -23,7 +23,9 @@ paths:
             schema:
               type: object
               properties:
-                project: { type: string }
+                projects:
+                  type: array
+                  items: { type: string }
       responses:
         "204": { description: Gestartet }
         default: { $ref: "#/components/responses/Error" }
@@ -64,9 +66,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [project]
+              required: [projects]
               properties:
-                project: { type: string }
+                projects:
+                  type: array
+                  items: { type: string }
       responses:
         "204": { description: Gewechselt }
         default: { $ref: "#/components/responses/Error" }
@@ -292,11 +296,14 @@ components:
           items: { type: string }
     Entry:
       type: object
-      required: [id, kind, start, open]
+      required: [id, kind, start, open, projects]
       properties:
         id: { type: integer, format: int64 }
         kind: { type: string, enum: [work, break] }
-        project: { type: string }
+        projects:
+          type: array
+          description: Zeit wird gleichmäßig auf alle Projekte aufgeteilt
+          items: { type: string }
         start: { type: string, format: date-time }
         end: { type: string, format: date-time }
         open: { type: boolean }
@@ -306,7 +313,9 @@ components:
       required: [kind, start, end]
       properties:
         kind: { type: string, enum: [work, break] }
-        project: { type: string }
+        projects:
+          type: array
+          items: { type: string }
         start: { type: string, format: date-time }
         end: { type: string, format: date-time }
         note: { type: string }
@@ -314,7 +323,9 @@ components:
       type: object
       properties:
         kind: { type: string, enum: [work, break] }
-        project: { type: string }
+        projects:
+          type: array
+          items: { type: string }
         start: { type: string, format: date-time }
         end: { type: string, format: date-time }
         note: { type: string }

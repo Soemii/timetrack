@@ -103,11 +103,12 @@ async function track(action, body) {
     loadProjects();
   } catch (e) { toast(e.message); }
 }
-$("#btn-start").onclick = () => track("start", { project: $("#start-project").value });
+const splitProjects = (v) => v.split("+").map((x) => x.trim()).filter(Boolean);
+$("#btn-start").onclick = () => track("start", { projects: splitProjects($("#start-project").value) });
 $("#btn-switch").onclick = () => {
   const p = $("#start-project").value;
   if (!p) { toast("Projektname ins Feld eingeben, dann Wechseln."); return; }
-  track("switch", { project: p });
+  track("switch", { projects: splitProjects(p) });
 };
 $("#btn-pause").onclick = () => track("pause");
 $("#btn-resume").onclick = () => track("resume");
@@ -152,7 +153,7 @@ async function loadEntries() {
       `<td>${dayLabel(isoDate(new Date(e.start)))}</td>` +
       `<td>${clock(e.start)}–${endTxt}</td><td>${dur}</td>` +
       `<td>${e.kind === "break" ? "Pause" : "Arbeit"}</td>` +
-      `<td>${esc(e.project)}</td><td>${esc(e.note)}</td>` +
+      `<td>${esc((e.projects || []).join("+"))}</td><td>${esc(e.note)}</td>` +
       `<td><button class="icon" data-edit="${e.id}">✏️</button>` +
       `<button class="icon" data-del="${e.id}">🗑</button></td>`;
     tr.querySelector("[data-edit]").onclick = () => openEntryDialog(e);
@@ -176,7 +177,7 @@ function openEntryDialog(e) {
   $("#ed-to").value = e && !e.open ? clock(e.end) : "";
   $("#ed-to").required = !(e && e.open);
   $("#ed-kind").value = e ? e.kind : "work";
-  $("#ed-project").value = e ? e.project || "" : "";
+  $("#ed-project").value = e ? (e.projects || []).join("+") : "";
   $("#ed-note").value = e ? e.note || "" : "";
   $("#entry-dialog").showModal();
 }
@@ -188,7 +189,7 @@ $("#entry-dialog-form").onsubmit = async (ev) => {
   const mk = (t) => new Date(`${date}T${t}:00`).toISOString();
   const body = {
     kind: $("#ed-kind").value,
-    project: $("#ed-project").value,
+    projects: splitProjects($("#ed-project").value),
     note: $("#ed-note").value,
     start: mk($("#ed-from").value),
   };

@@ -26,6 +26,8 @@ Tracking:
   pause                  Pause beginnen
   resume                 Pause beenden, weiterarbeiten
   switch <projekt>       Projekt wechseln
+                         Mehrere Projekte mit '+': start acme+intern
+                         (Zeit wird gleichmäßig aufgeteilt)
   status                 Aktueller Zustand, Tagesübersicht, Saldo
 
 Einträge:

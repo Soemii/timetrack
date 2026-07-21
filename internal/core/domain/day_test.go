@@ -44,12 +44,33 @@ func TestEffectiveReclassifiesShortBreaks(t *testing.T) {
 }
 
 func TestEffectiveKeepsProject(t *testing.T) {
-	pid := int64(7)
 	s := seg(KindBreak, "2026-07-20 12:00", "2026-07-20 12:10")
-	s.ProjectID = &pid
+	s.ProjectIDs = []int64{7, 9}
 	got := Effective([]Segment{s})[0]
-	if got.Kind != KindWork || got.ProjectID == nil || *got.ProjectID != 7 {
-		t.Errorf("Projekt bei Reklassifizierung verloren: %+v", got)
+	if got.Kind != KindWork || len(got.ProjectIDs) != 2 || got.ProjectIDs[0] != 7 {
+		t.Errorf("Projekte bei Reklassifizierung verloren: %+v", got)
+	}
+}
+
+func TestAggregateSplitsAcrossProjects(t *testing.T) {
+	// 6h auf zwei Projekte → je 3h; 3h auf drei Projekte → je 1h.
+	two := seg(KindWork, "2026-07-20 09:00", "2026-07-20 15:00")
+	two.ProjectIDs = []int64{1, 2}
+	three := seg(KindWork, "2026-07-20 15:00", "2026-07-20 18:00")
+	three.ProjectIDs = []int64{1, 2, 3}
+	w := Aggregate([]Segment{two, three})
+	if w.Worked != 9*time.Hour {
+		t.Errorf("Worked = %v, want 9h", w.Worked)
+	}
+	if w.PerProject[1] != 4*time.Hour || w.PerProject[2] != 4*time.Hour || w.PerProject[3] != 1*time.Hour {
+		t.Errorf("Split falsch: %v", w.PerProject)
+	}
+	var sum time.Duration
+	for _, d := range w.PerProject {
+		sum += d
+	}
+	if sum != w.Worked {
+		t.Errorf("Anteile (%v) ergeben nicht die Gesamtzeit (%v)", sum, w.Worked)
 	}
 }
 

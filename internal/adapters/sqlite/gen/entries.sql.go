@@ -8,7 +8,22 @@ package db
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
+
+const addEntryProject = `-- name: AddEntryProject :exec
+INSERT INTO entry_projects (entry_id, project_id) VALUES (?, ?)
+`
+
+type AddEntryProjectParams struct {
+	EntryID   int64
+	ProjectID int64
+}
+
+func (q *Queries) AddEntryProject(ctx context.Context, arg AddEntryProjectParams) error {
+	_, err := q.db.ExecContext(ctx, addEntryProject, arg.EntryID, arg.ProjectID)
+	return err
+}
 
 const closeEntry = `-- name: CloseEntry :exec
 UPDATE entries SET end_ts = ? WHERE id = ?
@@ -25,23 +40,21 @@ func (q *Queries) CloseEntry(ctx context.Context, arg CloseEntryParams) error {
 }
 
 const createEntry = `-- name: CreateEntry :one
-INSERT INTO entries (kind, project_id, start_ts, end_ts, note)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO entries (kind, start_ts, end_ts, note)
+VALUES (?, ?, ?, ?)
 RETURNING id
 `
 
 type CreateEntryParams struct {
-	Kind      string
-	ProjectID sql.NullInt64
-	StartTs   int64
-	EndTs     sql.NullInt64
-	Note      sql.NullString
+	Kind    string
+	StartTs int64
+	EndTs   sql.NullInt64
+	Note    sql.NullString
 }
 
 func (q *Queries) CreateEntry(ctx context.Context, arg CreateEntryParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, createEntry,
 		arg.Kind,
-		arg.ProjectID,
 		arg.StartTs,
 		arg.EndTs,
 		arg.Note,
@@ -60,8 +73,17 @@ func (q *Queries) DeleteEntry(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteEntryProjects = `-- name: DeleteEntryProjects :exec
+DELETE FROM entry_projects WHERE entry_id = ?
+`
+
+func (q *Queries) DeleteEntryProjects(ctx context.Context, entryID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteEntryProjects, entryID)
+	return err
+}
+
 const getEntry = `-- name: GetEntry :one
-SELECT id, kind, project_id, start_ts, end_ts, note FROM entries WHERE id = ?
+SELECT id, kind, start_ts, end_ts, note FROM entries WHERE id = ?
 `
 
 func (q *Queries) GetEntry(ctx context.Context, id int64) (Entry, error) {
@@ -70,7 +92,6 @@ func (q *Queries) GetEntry(ctx context.Context, id int64) (Entry, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.Kind,
-		&i.ProjectID,
 		&i.StartTs,
 		&i.EndTs,
 		&i.Note,
@@ -79,7 +100,7 @@ func (q *Queries) GetEntry(ctx context.Context, id int64) (Entry, error) {
 }
 
 const getOpenEntry = `-- name: GetOpenEntry :one
-SELECT id, kind, project_id, start_ts, end_ts, note FROM entries WHERE end_ts IS NULL LIMIT 1
+SELECT id, kind, start_ts, end_ts, note FROM entries WHERE end_ts IS NULL LIMIT 1
 `
 
 func (q *Queries) GetOpenEntry(ctx context.Context) (Entry, error) {
@@ -88,7 +109,6 @@ func (q *Queries) GetOpenEntry(ctx context.Context) (Entry, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.Kind,
-		&i.ProjectID,
 		&i.StartTs,
 		&i.EndTs,
 		&i.Note,
@@ -97,7 +117,7 @@ func (q *Queries) GetOpenEntry(ctx context.Context) (Entry, error) {
 }
 
 const listEntriesTouching = `-- name: ListEntriesTouching :many
-SELECT id, kind, project_id, start_ts, end_ts, note FROM entries
+SELECT id, kind, start_ts, end_ts, note FROM entries
 WHERE start_ts < ?1 AND COALESCE(end_ts, ?2) > ?3
 ORDER BY start_ts
 `
@@ -120,7 +140,6 @@ func (q *Queries) ListEntriesTouching(ctx context.Context, arg ListEntriesTouchi
 		if err := rows.Scan(
 			&i.ID,
 			&i.Kind,
-			&i.ProjectID,
 			&i.StartTs,
 			&i.EndTs,
 			&i.Note,
@@ -138,24 +157,61 @@ func (q *Queries) ListEntriesTouching(ctx context.Context, arg ListEntriesTouchi
 	return items, nil
 }
 
+const listEntryProjectsFor = `-- name: ListEntryProjectsFor :many
+SELECT entry_id, project_id FROM entry_projects
+WHERE entry_id IN (/*SLICE:ids*/?)
+ORDER BY entry_id, project_id
+`
+
+func (q *Queries) ListEntryProjectsFor(ctx context.Context, ids []int64) ([]EntryProject, error) {
+	query := listEntryProjectsFor
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EntryProject
+	for rows.Next() {
+		var i EntryProject
+		if err := rows.Scan(&i.EntryID, &i.ProjectID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateEntry = `-- name: UpdateEntry :exec
-UPDATE entries SET kind = ?, project_id = ?, start_ts = ?, end_ts = ?, note = ?
+UPDATE entries SET kind = ?, start_ts = ?, end_ts = ?, note = ?
 WHERE id = ?
 `
 
 type UpdateEntryParams struct {
-	Kind      string
-	ProjectID sql.NullInt64
-	StartTs   int64
-	EndTs     sql.NullInt64
-	Note      sql.NullString
-	ID        int64
+	Kind    string
+	StartTs int64
+	EndTs   sql.NullInt64
+	Note    sql.NullString
+	ID      int64
 }
 
 func (q *Queries) UpdateEntry(ctx context.Context, arg UpdateEntryParams) error {
 	_, err := q.db.ExecContext(ctx, updateEntry,
 		arg.Kind,
-		arg.ProjectID,
 		arg.StartTs,
 		arg.EndTs,
 		arg.Note,

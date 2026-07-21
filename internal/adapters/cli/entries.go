@@ -246,10 +246,11 @@ func (a *App) cmdList(args []string) error {
 			end = e.End.In(a.Loc).Format("15:04")
 			dur = e.Duration()
 		}
-		project := ""
-		if e.ProjectID != nil {
-			project = rep.ProjectNames[*e.ProjectID]
+		var pnames []string
+		for _, pid := range e.ProjectIDs {
+			pnames = append(pnames, rep.ProjectNames[pid])
 		}
+		project := strings.Join(pnames, "+")
 		fmt.Fprintf(a.Stdout, "%4d  %-10s %s–%-6s %-7s %-6s %-20s %s\n",
 			e.ID, dayLabel(domain.DateOf(e.Start, a.Loc)),
 			e.Start.In(a.Loc).Format("15:04"), end, hm(dur), kindLabel(e.Kind), project, e.Note)

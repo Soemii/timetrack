@@ -171,13 +171,15 @@ type DaySummary struct {
 
 // Entry defines model for Entry.
 type Entry struct {
-	End     *time.Time `json:"end,omitempty"`
-	Id      int64      `json:"id"`
-	Kind    EntryKind  `json:"kind"`
-	Note    *string    `json:"note,omitempty"`
-	Open    bool       `json:"open"`
-	Project *string    `json:"project,omitempty"`
-	Start   time.Time  `json:"start"`
+	End  *time.Time `json:"end,omitempty"`
+	Id   int64      `json:"id"`
+	Kind EntryKind  `json:"kind"`
+	Note *string    `json:"note,omitempty"`
+	Open bool       `json:"open"`
+
+	// Projects Zeit wird gleichmäßig auf alle Projekte aufgeteilt
+	Projects []string  `json:"projects"`
+	Start    time.Time `json:"start"`
 }
 
 // EntryKind defines model for Entry.Kind.
@@ -185,11 +187,11 @@ type EntryKind string
 
 // EntryInput defines model for EntryInput.
 type EntryInput struct {
-	End     time.Time      `json:"end"`
-	Kind    EntryInputKind `json:"kind"`
-	Note    *string        `json:"note,omitempty"`
-	Project *string        `json:"project,omitempty"`
-	Start   time.Time      `json:"start"`
+	End      time.Time      `json:"end"`
+	Kind     EntryInputKind `json:"kind"`
+	Note     *string        `json:"note,omitempty"`
+	Projects *[]string      `json:"projects,omitempty"`
+	Start    time.Time      `json:"start"`
 }
 
 // EntryInputKind defines model for EntryInput.Kind.
@@ -197,11 +199,11 @@ type EntryInputKind string
 
 // EntryPatch defines model for EntryPatch.
 type EntryPatch struct {
-	End     *time.Time      `json:"end,omitempty"`
-	Kind    *EntryPatchKind `json:"kind,omitempty"`
-	Note    *string         `json:"note,omitempty"`
-	Project *string         `json:"project,omitempty"`
-	Start   *time.Time      `json:"start,omitempty"`
+	End      *time.Time      `json:"end,omitempty"`
+	Kind     *EntryPatchKind `json:"kind,omitempty"`
+	Note     *string         `json:"note,omitempty"`
+	Projects *[]string       `json:"projects,omitempty"`
+	Start    *time.Time      `json:"start,omitempty"`
 }
 
 // EntryPatchKind defines model for EntryPatch.Kind.
@@ -300,12 +302,12 @@ type GetReportParams struct {
 
 // TrackingStartJSONBody defines parameters for TrackingStart.
 type TrackingStartJSONBody struct {
-	Project *string `json:"project,omitempty"`
+	Projects *[]string `json:"projects,omitempty"`
 }
 
 // TrackingSwitchJSONBody defines parameters for TrackingSwitch.
 type TrackingSwitchJSONBody struct {
-	Project string `json:"project"`
+	Projects []string `json:"projects"`
 }
 
 // CreateAbsenceJSONRequestBody defines body for CreateAbsence for application/json ContentType.

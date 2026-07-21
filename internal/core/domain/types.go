@@ -14,14 +14,15 @@ const (
 
 // Segment ist ein zusammenhängender Zeitblock (Arbeit oder Pause).
 // Bei einem offenen Segment injiziert der Aufrufer End = now und setzt Open.
+// ProjectIDs: leer = ohne Projekt; mehrere = Zeit wird gleichmäßig aufgeteilt.
 type Segment struct {
-	ID        int64
-	Kind      Kind
-	ProjectID *int64
-	Start     time.Time
-	End       time.Time
-	Open      bool
-	Note      string
+	ID         int64
+	Kind       Kind
+	ProjectIDs []int64
+	Start      time.Time
+	End        time.Time
+	Open       bool
+	Note       string
 }
 
 func (s Segment) Duration() time.Duration { return s.End.Sub(s.Start) }

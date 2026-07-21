@@ -357,6 +357,34 @@ func TestReportProjects(t *testing.T) {
 	}
 }
 
+func TestMultiProjectSplit(t *testing.T) {
+	svc, _ := testService(t)
+	day := time.Date(2026, 7, 20, 0, 0, 0, 0, berlin)
+	// 6h auf acme+intern (dedupe: "Acme" doppelt), 2h nur acme
+	if _, err := svc.AddEntry(domain.KindWork, "acme+intern+Acme", day.Add(9*time.Hour), day.Add(15*time.Hour), ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddEntry(domain.KindWork, "acme", day.Add(15*time.Hour), day.Add(17*time.Hour), ""); err != nil {
+		t.Fatal(err)
+	}
+	d := domain.Date{Year: 2026, Month: 7, Day: 20}
+	rep, err := svc.Report(d, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]time.Duration{}
+	for pid, dur := range rep.ProjectTotals {
+		byName[rep.ProjectNames[pid]] = dur
+	}
+	// acme: 3h + 2h = 5h, intern: 3h
+	if byName["acme"] != 5*time.Hour || byName["intern"] != 3*time.Hour {
+		t.Errorf("Split: %v", byName)
+	}
+	if len(rep.ProjectTotals) != 2 {
+		t.Errorf("Dedupe fehlgeschlagen: %v", rep.ProjectNames)
+	}
+}
+
 func TestHalfVacation(t *testing.T) {
 	svc, _ := testService(t)
 	mon := domain.Date{Year: 2026, Month: 7, Day: 20}

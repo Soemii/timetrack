@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -54,6 +55,47 @@ func TestOpenForeignDB(t *testing.T) {
 	}
 }
 
+// TestMigration0002MovesProjectIDs: Bestandsdaten mit entries.project_id
+// (Schema-Stand 0001) landen nach der Migration in entry_projects.
+func TestMigration0002MovesProjectIDs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	pre, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := os.ReadFile("migrations/0001_init.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pre.Exec(string(schema)); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"CREATE TABLE timetrack_migrations (version uint64, dirty bool)",
+		"INSERT INTO timetrack_migrations VALUES (1, 0)",
+		"INSERT INTO projects (id, name, created_at) VALUES (1, 'alt', 0)",
+		"INSERT INTO entries (id, kind, project_id, start_ts, end_ts) VALUES (1, 'work', 1, 100, 200)",
+	} {
+		if _, err := pre.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pre.Close()
+
+	sqlDB, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open/Migration: %v", err)
+	}
+	defer sqlDB.Close()
+	got, err := NewRepo(sqlDB).GetEntry(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.ProjectIDs) != 1 || got.ProjectIDs[0] != 1 {
+		t.Errorf("Bestandsprojekt nicht migriert: %v", got.ProjectIDs)
+	}
+}
+
 func TestEntryRoundtrip(t *testing.T) {
 	r := testRepo(t)
 	start := time.Date(2026, 7, 20, 9, 0, 0, 0, time.UTC)
@@ -62,7 +104,11 @@ func TestEntryRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := r.CreateEntry(domain.Segment{Kind: domain.KindWork, ProjectID: &pid, Start: start, Open: true})
+	pid2, err := r.CreateProject("intern", start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := r.CreateEntry(domain.Segment{Kind: domain.KindWork, ProjectIDs: []int64{pid, pid2}, Start: start, Open: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,19 +137,23 @@ func TestEntryRoundtrip(t *testing.T) {
 	if err != nil || len(segs) != 1 {
 		t.Fatalf("EntriesBetween: %v, %d Segmente", err, len(segs))
 	}
-	if segs[0].ProjectID == nil || *segs[0].ProjectID != pid {
-		t.Errorf("Projekt-ID verloren")
+	if len(segs[0].ProjectIDs) != 2 || segs[0].ProjectIDs[0] != pid || segs[0].ProjectIDs[1] != pid2 {
+		t.Errorf("Projekt-IDs verloren: %v", segs[0].ProjectIDs)
 	}
 
-	// Update + Delete
+	// Update: Projektliste ändern + Notiz
 	s := segs[0]
 	s.Note = "geändert"
+	s.ProjectIDs = []int64{pid2}
 	if err := r.UpdateEntry(s); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := r.GetEntry(id)
 	if got.Note != "geändert" {
 		t.Errorf("Update ging verloren")
+	}
+	if len(got.ProjectIDs) != 1 || got.ProjectIDs[0] != pid2 {
+		t.Errorf("Projektliste nach Update: %v", got.ProjectIDs)
 	}
 	if err := r.DeleteEntry(id); err != nil {
 		t.Fatal(err)

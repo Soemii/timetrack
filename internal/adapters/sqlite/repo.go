@@ -12,13 +12,27 @@ import (
 )
 
 type Repo struct {
-	q *db.Queries
+	db *sql.DB
+	q  *db.Queries
 }
 
 var _ ports.Repository = (*Repo)(nil)
 
 func NewRepo(sqlDB *sql.DB) *Repo {
-	return &Repo{q: db.New(sqlDB)}
+	return &Repo{db: sqlDB, q: db.New(sqlDB)}
+}
+
+// inTx führt fn in einer Transaktion mit tx-gebundenen Queries aus.
+func (r *Repo) inTx(fn func(q *db.Queries) error) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	if err := fn(r.q.WithTx(tx)); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 var ctx = context.Background() // ponytail: lokales Tool, keine Request-Kontexte
@@ -30,23 +44,12 @@ func toSegment(e db.Entry) domain.Segment {
 		Start: time.Unix(e.StartTs, 0),
 		Note:  e.Note.String,
 	}
-	if e.ProjectID.Valid {
-		pid := e.ProjectID.Int64
-		s.ProjectID = &pid
-	}
 	if e.EndTs.Valid {
 		s.End = time.Unix(e.EndTs.Int64, 0)
 	} else {
 		s.Open = true
 	}
 	return s
-}
-
-func nullPid(p *int64) sql.NullInt64 {
-	if p == nil {
-		return sql.NullInt64{}
-	}
-	return sql.NullInt64{Int64: *p, Valid: true}
 }
 
 func nullEnd(s domain.Segment) sql.NullInt64 {
@@ -62,6 +65,28 @@ func nullStr(s string) sql.NullString {
 
 // --- Entries ---
 
+// attachProjects lädt die Projektzuordnungen für die gegebenen Segmente.
+func (r *Repo) attachProjects(segs []domain.Segment) error {
+	if len(segs) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(segs))
+	byID := map[int64]*domain.Segment{}
+	for i := range segs {
+		ids[i] = segs[i].ID
+		byID[segs[i].ID] = &segs[i]
+	}
+	links, err := r.q.ListEntryProjectsFor(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for _, l := range links {
+		s := byID[l.EntryID]
+		s.ProjectIDs = append(s.ProjectIDs, l.ProjectID)
+	}
+	return nil
+}
+
 func (r *Repo) OpenEntry() (*domain.Segment, error) {
 	e, err := r.q.GetOpenEntry(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -70,18 +95,34 @@ func (r *Repo) OpenEntry() (*domain.Segment, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := toSegment(e)
-	return &s, nil
+	segs := []domain.Segment{toSegment(e)}
+	if err := r.attachProjects(segs); err != nil {
+		return nil, err
+	}
+	return &segs[0], nil
 }
 
 func (r *Repo) CreateEntry(s domain.Segment) (int64, error) {
-	return r.q.CreateEntry(ctx, db.CreateEntryParams{
-		Kind:      string(s.Kind),
-		ProjectID: nullPid(s.ProjectID),
-		StartTs:   s.Start.Unix(),
-		EndTs:     nullEnd(s),
-		Note:      nullStr(s.Note),
+	var id int64
+	err := r.inTx(func(q *db.Queries) error {
+		var err error
+		id, err = q.CreateEntry(ctx, db.CreateEntryParams{
+			Kind:    string(s.Kind),
+			StartTs: s.Start.Unix(),
+			EndTs:   nullEnd(s),
+			Note:    nullStr(s.Note),
+		})
+		if err != nil {
+			return err
+		}
+		for _, pid := range s.ProjectIDs {
+			if err := q.AddEntryProject(ctx, db.AddEntryProjectParams{EntryID: id, ProjectID: pid}); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
+	return id, err
 }
 
 func (r *Repo) CloseEntry(id int64, end time.Time) error {
@@ -96,17 +137,33 @@ func (r *Repo) GetEntry(id int64) (domain.Segment, error) {
 	if err != nil {
 		return domain.Segment{}, err
 	}
-	return toSegment(e), nil
+	segs := []domain.Segment{toSegment(e)}
+	if err := r.attachProjects(segs); err != nil {
+		return domain.Segment{}, err
+	}
+	return segs[0], nil
 }
 
 func (r *Repo) UpdateEntry(s domain.Segment) error {
-	return r.q.UpdateEntry(ctx, db.UpdateEntryParams{
-		Kind:      string(s.Kind),
-		ProjectID: nullPid(s.ProjectID),
-		StartTs:   s.Start.Unix(),
-		EndTs:     nullEnd(s),
-		Note:      nullStr(s.Note),
-		ID:        s.ID,
+	return r.inTx(func(q *db.Queries) error {
+		if err := q.UpdateEntry(ctx, db.UpdateEntryParams{
+			Kind:    string(s.Kind),
+			StartTs: s.Start.Unix(),
+			EndTs:   nullEnd(s),
+			Note:    nullStr(s.Note),
+			ID:      s.ID,
+		}); err != nil {
+			return err
+		}
+		if err := q.DeleteEntryProjects(ctx, s.ID); err != nil {
+			return err
+		}
+		for _, pid := range s.ProjectIDs {
+			if err := q.AddEntryProject(ctx, db.AddEntryProjectParams{EntryID: s.ID, ProjectID: pid}); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 
@@ -126,6 +183,9 @@ func (r *Repo) EntriesBetween(from, to, now time.Time) ([]domain.Segment, error)
 	segs := make([]domain.Segment, len(rows))
 	for i, e := range rows {
 		segs[i] = toSegment(e)
+	}
+	if err := r.attachProjects(segs); err != nil {
+		return nil, err
 	}
 	return segs, nil
 }

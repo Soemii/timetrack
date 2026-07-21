@@ -51,6 +51,14 @@ func deref(s *string) string {
 	return *s
 }
 
+// joinProjects macht aus dem API-Array die Service-Spec ("a+b").
+func joinProjects(ps *[]string) string {
+	if ps == nil {
+		return ""
+	}
+	return strings.Join(*ps, "+")
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -145,7 +153,7 @@ func (h *Handler) TrackingStart(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength > 0 && !decode(w, r, &body) {
 		return
 	}
-	if err := h.Svc.Start(deref(body.Project)); err != nil {
+	if err := h.Svc.Start(joinProjects(body.Projects)); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -185,7 +193,7 @@ func (h *Handler) TrackingSwitch(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	if err := h.Svc.Switch(body.Project); err != nil {
+	if err := h.Svc.Switch(joinProjects(&body.Projects)); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -208,18 +216,19 @@ func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request, params api
 	out := make([]api.Entry, len(entries))
 	for i, e := range entries {
 		out[i] = api.Entry{
-			Id:    e.ID,
-			Kind:  api.EntryKind(e.Kind),
-			Start: e.Start.In(h.Loc),
-			Open:  e.Open,
-			Note:  optStr(e.Note),
+			Id:       e.ID,
+			Kind:     api.EntryKind(e.Kind),
+			Start:    e.Start.In(h.Loc),
+			Open:     e.Open,
+			Note:     optStr(e.Note),
+			Projects: []string{},
 		}
 		if !e.Open {
 			end := e.End.In(h.Loc)
 			out[i].End = &end
 		}
-		if e.ProjectID != nil {
-			out[i].Project = optStr(names[*e.ProjectID])
+		for _, pid := range e.ProjectIDs {
+			out[i].Projects = append(out[i].Projects, names[pid])
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -230,7 +239,7 @@ func (h *Handler) CreateEntry(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	id, err := h.Svc.AddEntry(domain.Kind(body.Kind), deref(body.Project), body.Start, body.End, deref(body.Note))
+	id, err := h.Svc.AddEntry(domain.Kind(body.Kind), joinProjects(body.Projects), body.Start, body.End, deref(body.Note))
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -244,10 +253,13 @@ func (h *Handler) UpdateEntry(w http.ResponseWriter, r *http.Request, id int64) 
 		return
 	}
 	patch := service.EntryPatch{
-		Project: body.Project,
-		Start:   body.Start,
-		End:     body.End,
-		Note:    body.Note,
+		Start: body.Start,
+		End:   body.End,
+		Note:  body.Note,
+	}
+	if body.Projects != nil {
+		spec := joinProjects(body.Projects)
+		patch.Project = &spec
 	}
 	if body.Kind != nil {
 		k := domain.Kind(*body.Kind)
