@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,6 +17,41 @@ func testRepo(t *testing.T) *Repo {
 	}
 	t.Cleanup(func() { sqlDB.Close() })
 	return NewRepo(sqlDB)
+}
+
+// TestOpenForeignDB: eine bestehende Datei mit fremdem schema_migrations
+// (z.B. von einem anderen Tool) darf unsere Migration nicht verhindern.
+func TestOpenForeignDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "foreign.db")
+	pre, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"CREATE TABLE activity_types (id INTEGER PRIMARY KEY, name TEXT)",
+		"CREATE TABLE schema_migrations (version uint64, dirty bool)",
+		"INSERT INTO schema_migrations VALUES (1, 0)",
+	} {
+		if _, err := pre.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pre.Close()
+
+	sqlDB, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open auf Fremddatei: %v", err)
+	}
+	defer sqlDB.Close()
+	r := NewRepo(sqlDB)
+	if err := r.SetConfig("test", "ok"); err != nil {
+		t.Fatalf("config-Tabelle fehlt nach Migration: %v", err)
+	}
+	// Fremde Tabelle unangetastet
+	var n int
+	if err := sqlDB.QueryRow("SELECT count(*) FROM activity_types").Scan(&n); err != nil {
+		t.Errorf("fremde Tabelle beschädigt: %v", err)
+	}
 }
 
 func TestEntryRoundtrip(t *testing.T) {

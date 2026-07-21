@@ -35,7 +35,10 @@ func runMigrations(sqlDB *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	drv, err := migratesqlite.WithInstance(sqlDB, &migratesqlite.Config{})
+	// Eigener Tabellenname: die DB-Datei kann ein fremdes schema_migrations
+	// enthalten (z.B. von einem früheren Tool im selben Verzeichnis) — das
+	// würde unsere Migration als "schon angewendet" erscheinen lassen.
+	drv, err := migratesqlite.WithInstance(sqlDB, &migratesqlite.Config{MigrationsTable: "timetrack_migrations"})
 	if err != nil {
 		return err
 	}
@@ -45,6 +48,14 @@ func runMigrations(sqlDB *sql.DB) error {
 	}
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return err
+	}
+	// Sanity-Check: Kerntabelle muss existieren, sonst ist die Datei defekt.
+	var n int
+	if err := sqlDB.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='config'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("Datenbank enthält die timetrack-Tabellen nicht — Datei prüfen oder mit TIMETRACK_DB einen anderen Pfad wählen")
 	}
 	return nil
 }
