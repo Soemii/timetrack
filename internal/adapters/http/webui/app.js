@@ -63,16 +63,28 @@ function isoWeek(d) {
   return 1 + Math.round(((t - w1) / 86400000 - 3 + ((w1.getDay() + 6) % 7)) / 7);
 }
 
-// --- Projektfarben (stabil per Namens-Hash) ---
-const PROJ_COLORS = [
-  ["rgba(194,24,60,.12)", "#c2183c", "rgba(194,24,60,.4)"],
-  ["rgba(179,84,15,.12)", "#b3540f", "rgba(179,84,15,.4)"],
-  ["rgba(38,33,25,.08)", "#5d564a", "rgba(38,33,25,.3)"],
-  ["rgba(46,125,79,.12)", "#2e7d4f", "rgba(46,125,79,.4)"],
-];
-const BREAK_COLOR = ["#eee9df", "#a49c8a", "#d8d2c4"];
-const projColor = (p, kind) => kind === "break" ? BREAK_COLOR
-  : PROJ_COLORS[[...(p || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % PROJ_COLORS.length];
+// --- Projektfarben: stabiler Namens-Hash auf CSS-Klassen pc0…pc3 (hell+dunkel im CSS) ---
+const projClass = (p, kind) => kind === "break" ? "pc-break"
+  : "pc" + ([...(p || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 4);
+
+// --- Theme: ohne Wahl folgt CSS dem System; Toggle setzt data-theme + localStorage,
+// zurück auf "auto" sobald die Wahl wieder der System-Präferenz entspricht ---
+const sysDark = matchMedia("(prefers-color-scheme: dark)");
+const effTheme = () => document.documentElement.dataset.theme || (sysDark.matches ? "dark" : "light");
+function themeIcon() { $("#theme-toggle").textContent = effTheme() === "dark" ? "☀" : "🌙"; }
+$("#theme-toggle").onclick = () => {
+  const next = effTheme() === "dark" ? "light" : "dark";
+  if ((next === "dark") === sysDark.matches) {
+    delete document.documentElement.dataset.theme;
+    localStorage.removeItem("theme");
+  } else {
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem("theme", next);
+  }
+  themeIcon();
+};
+sysDark.onchange = themeIcon;
+themeIcon();
 
 // --- State ---
 const S = {
@@ -308,16 +320,13 @@ function renderTimeline() {
 }
 
 function blockEl(b, col, blocks) {
-  const [bg, fg, bd] = projColor(b.p, b.kind);
   const isSel = S.selBlock === b.id;
   const live = b.entry ? b.entry.open : false;
   const el = document.createElement("div");
-  el.className = "tl-block" + (isSel ? " sel" : "") + (live ? " live" : "") + (b.draft ? " draft" : "");
+  el.className = "tl-block " + projClass(b.p, b.kind) +
+    (isSel ? " sel" : "") + (live ? " live" : "") + (b.draft ? " draft" : "");
   el.style.top = (b.f - H0) * PXH + "px";
   el.style.height = Math.max((b.t - b.f) * PXH - 3, 12) + "px";
-  el.style.background = bg;
-  el.style.color = fg;
-  el.style.borderColor = isSel ? fg : bd;
   const time = b.entry
     ? `${b.contTop ? "↥ " : ""}${clock(b.entry.start)}–${live ? "…läuft" : clock(b.entry.end)}${b.contBottom ? " ↧" : ""}`
     : `${fmtH(b.f)}–${fmtH(b.t)}`;
@@ -428,10 +437,9 @@ function renderPanel() {
   $("#ep-form").hidden = !b;
   if (!b) return;
   const dateIso = isoDate(addDays(S.monday, b.day));
-  const [bg, fg] = projColor(b.p, b.kind);
   const live = b.entry ? b.entry.open : false;
   $("#ep-head").innerHTML = `<b>${dayLabel(dateIso)}</b> · ` +
-    `<span class="chip" style="background:${bg};color:${fg}">${esc(b.kind === "break" ? "Pause" : b.p || "neu")}</span>` +
+    `<span class="chip ${projClass(b.p, b.kind)}">${esc(b.kind === "break" ? "Pause" : b.p || "neu")}</span>` +
     (live ? ' · <span class="muted-c">läuft</span>' : "");
   $("#ep-from").value = b.entry ? clock(b.entry.start) : fmtH(b.f);
   $("#ep-to").value = b.entry ? (live ? "" : clock(b.entry.end)) : fmtH(b.t);

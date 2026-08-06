@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>timetrack</title>
+<script>const t=localStorage.getItem("theme");if(t)document.documentElement.dataset.theme=t;</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -23,6 +24,7 @@
     <button id="hdr-stop" class="primary" hidden>■ Stop</button>
     <button id="hdr-pause" class="btn" hidden>⏸ Pause</button>
     <button id="hdr-resume" class="primary" hidden>▶ Weiter</button>
+    <button id="theme-toggle" class="btn" title="Hell/Dunkel umschalten">🌙</button>
   </div>
 </header>
 
