@@ -4,126 +4,169 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>timetrack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
-  <h1>⏱ timetrack</h1>
+  <div class="logo"><span class="dot"></span>timetrack</div>
   <nav>
     <button data-tab="status" class="active">Status</button>
     <button data-tab="entries">Einträge</button>
     <button data-tab="absences">Abwesenheiten</button>
     <button data-tab="report">Bericht</button>
   </nav>
+  <div class="header-right">
+    <span id="hdr-timer" class="hdr-timer" hidden><span class="pulse"></span><span id="hdr-timer-text"></span></span>
+    <button id="hdr-stop" class="primary" hidden>■ Stop</button>
+    <button id="hdr-pause" class="btn" hidden>⏸ Pause</button>
+  </div>
 </header>
 
 <main>
 <section id="tab-status">
-  <div class="card" id="status-card">
-    <div id="status-state" class="state">–</div>
-    <div id="status-detail"></div>
-    <div class="actions">
-      <input id="start-project" list="project-list" placeholder="Projekt(e), z.B. acme+intern">
-      <datalist id="project-list"></datalist>
-      <button id="btn-start" class="primary">Start</button>
-      <button id="btn-switch">Wechseln</button>
-      <button id="btn-pause">Pause</button>
-      <button id="btn-resume">Weiter</button>
-      <button id="btn-stop" class="danger">Stop</button>
+  <div class="status-grid">
+    <div class="card">
+      <div class="state-row">
+        <span id="status-dot" class="status-dot"></span>
+        <span id="status-state" class="state">–</span>
+        <span id="status-project" class="chip" hidden></span>
+      </div>
+      <div id="status-timer" class="big-timer idle">0:00:00</div>
+      <div id="status-detail" class="muted-c"></div>
+      <div class="actions">
+        <input id="start-project" list="project-list" placeholder="Projekt(e), z.B. acme+intern">
+        <datalist id="project-list"></datalist>
+        <button id="btn-start" class="primary">▶ Start</button>
+        <button id="btn-switch" class="btn">⇄ Wechseln</button>
+        <button id="btn-pause" class="btn">⏸ Pause</button>
+        <button id="btn-resume" class="primary">▶ Weiter</button>
+        <button id="btn-stop" class="primary">■ Stop</button>
+      </div>
+      <div id="status-warnings"></div>
     </div>
-    <div id="status-warnings"></div>
+    <div class="status-side">
+      <div class="card">
+        <h2>Heute</h2>
+        <div id="today-summary" class="kv"></div>
+        <div class="progress"><div id="today-progress"></div></div>
+      </div>
+      <div class="card">
+        <h2>Überstundensaldo</h2>
+        <div id="saldo" class="big">–</div>
+      </div>
+    </div>
   </div>
   <div class="card">
-    <h2>Heute</h2>
-    <div id="today-summary"></div>
-  </div>
-  <div class="card">
-    <h2>Überstundensaldo</h2>
-    <div id="saldo" class="big">–</div>
+    <h2 id="week-title">Diese Woche</h2>
+    <div id="week-chart" class="week-chart"></div>
   </div>
 </section>
 
 <section id="tab-entries" hidden>
-  <div class="card">
-    <div class="rangebar">
-      <label>Von <input type="date" id="entries-from"></label>
-      <label>Bis <input type="date" id="entries-to"></label>
-      <button id="entries-reload">Anzeigen</button>
-      <button id="entry-new" class="primary">+ Eintrag</button>
+  <div class="entries-bar">
+    <button id="view-zeit" class="chip-btn active">Zeitstrahl</button>
+    <button id="view-liste" class="chip-btn">Liste</button>
+    <span class="weeknav"><button id="week-prev">‹</button><b id="week-label"></b><button id="week-next">›</button></span>
+    <button id="entry-new" class="primary">＋ Eintrag</button>
+  </div>
+
+  <div id="entries-zeit" class="timeline">
+    <div id="tl-hours" class="tl-hours"></div>
+    <div id="tl-days" class="tl-days"></div>
+    <div class="tl-side">
+      <div class="card">
+        <h2>Eintrag bearbeiten</h2>
+        <div id="ep-empty" class="muted-c small">Block anklicken — oder auf freier Fläche ziehen, um einen neuen Eintrag anzulegen.</div>
+        <div id="ep-form" class="ep-stack" hidden>
+          <div id="ep-head" class="ep-head"></div>
+          <div class="ep-times"><input type="time" id="ep-from"><span class="muted-c">–</span><input type="time" id="ep-to"></div>
+          <select id="ep-kind"><option value="work">Arbeit</option><option value="break">Pause</option></select>
+          <input id="ep-project" list="project-list" placeholder="Projekt(e)">
+          <input id="ep-note" placeholder="Notiz">
+          <button id="ep-save" class="primary">Speichern</button>
+          <div class="ep-row"><button id="ep-dup" class="btn">Duplizieren</button><button id="ep-del" class="btn danger-text">Löschen</button></div>
+        </div>
+        <div class="hint">Obere/untere Kante eines Blocks ziehen ändert die Zeit (5-Min-Raster). Ziehen auf freier Fläche legt einen neuen Eintrag an.</div>
+      </div>
+      <div class="card">
+        <div id="week-summary" class="kv small-kv"></div>
+      </div>
     </div>
-    <table id="entries-table">
-      <thead><tr><th>Datum</th><th>Zeit</th><th>Dauer</th><th>Typ</th><th>Projekt</th><th>Notiz</th><th></th></tr></thead>
-      <tbody></tbody>
-    </table>
+  </div>
+
+  <div id="entries-liste" hidden>
+    <div id="bulk-bar" class="bulk-bar" hidden>
+      <b id="bulk-count"></b>
+      <button id="bulk-project" class="bulk-btn">Projekt ändern</button>
+      <button id="bulk-kind" class="bulk-btn">Typ ändern</button>
+      <button id="bulk-del" class="bulk-btn danger">Löschen</button>
+      <button id="bulk-clear" class="linklike">Auswahl aufheben</button>
+    </div>
+    <div class="card table-card"><div id="entries-list"></div></div>
   </div>
 </section>
 
 <section id="tab-absences" hidden>
-  <div class="card">
-    <div class="rangebar">
-      <label>Jahr <input type="number" id="absences-year" style="width:6em"></label>
-      <button id="absences-reload">Anzeigen</button>
+  <div class="abs-grid">
+    <div class="card">
+      <h2>Abwesenheit eintragen</h2>
+      <form id="absence-form" class="stack">
+        <select id="absence-type">
+          <option value="urlaub">Urlaub</option>
+          <option value="krank">Krank</option>
+          <option value="feiertag">Feiertag</option>
+        </select>
+        <div class="row">
+          <input type="date" id="absence-from" required>
+          <input type="date" id="absence-to" title="bis (optional)">
+        </div>
+        <label class="check"><input type="checkbox" id="absence-half"> halber Tag</label>
+        <button class="primary">Eintragen</button>
+      </form>
     </div>
-    <form id="absence-form" class="rangebar">
-      <select id="absence-type">
-        <option value="urlaub">Urlaub</option>
-        <option value="krank">Krank</option>
-        <option value="feiertag">Feiertag</option>
-      </select>
-      <label>Von <input type="date" id="absence-from" required></label>
-      <label>Bis <input type="date" id="absence-to"></label>
-      <label><input type="checkbox" id="absence-half"> halber Tag</label>
-      <button class="primary">Eintragen</button>
-    </form>
-    <table id="absences-table">
-      <thead><tr><th>Datum</th><th>Typ</th><th>Notiz</th><th></th></tr></thead>
-      <tbody></tbody>
-    </table>
-    <p id="vacation-count"></p>
+    <div class="stack">
+      <div class="card">
+        <div class="row-between">
+          <h2 class="nomargin">Urlaub <span id="abs-year-label"></span></h2>
+          <span class="weeknav"><button id="abs-prev" type="button">‹</button><button id="abs-next" type="button">›</button></span>
+        </div>
+        <p id="vacation-count" class="nomargin"></p>
+      </div>
+      <div class="card table-card">
+        <table id="absences-table">
+          <thead><tr><th>Datum</th><th>Typ</th><th>Notiz</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </section>
 
 <section id="tab-report" hidden>
-  <div class="card">
-    <div class="rangebar">
-      <button data-range="week">Woche</button>
-      <button data-range="month">Monat</button>
-      <button data-range="year">Jahr</button>
-      <label>Von <input type="date" id="report-from"></label>
-      <label>Bis <input type="date" id="report-to"></label>
-      <button id="report-reload" class="primary">Anzeigen</button>
-    </div>
-    <div id="report-totals"></div>
+  <div class="rangebar">
+    <button data-range="week" class="chip-btn">Woche</button>
+    <button data-range="month" class="chip-btn">Monat</button>
+    <button data-range="year" class="chip-btn">Jahr</button>
+    <label>Von <input type="date" id="report-from"></label>
+    <label>Bis <input type="date" id="report-to"></label>
+    <button id="report-reload" class="primary">Anzeigen</button>
+  </div>
+  <div id="report-totals" class="stats"></div>
+  <div class="card table-card">
     <table id="report-table">
       <thead><tr><th>Tag</th><th>Ist</th><th>Pause</th><th>Soll</th><th>Diff</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
+  </div>
+  <div class="card">
     <h2>Projekte</h2>
     <div id="report-projects"></div>
   </div>
 </section>
 </main>
-
-<dialog id="entry-dialog">
-  <form id="entry-dialog-form" method="dialog">
-    <h2 id="entry-dialog-title">Eintrag</h2>
-    <label>Datum <input type="date" id="ed-date" required></label>
-    <label>Von <input type="time" id="ed-from" required></label>
-    <label>Bis <input type="time" id="ed-to" required></label>
-    <label>Typ
-      <select id="ed-kind">
-        <option value="work">Arbeit</option>
-        <option value="break">Pause</option>
-      </select>
-    </label>
-    <label>Projekt <input id="ed-project" list="project-list"></label>
-    <label>Notiz <input id="ed-note"></label>
-    <div class="actions">
-      <button value="cancel" formnovalidate>Abbrechen</button>
-      <button value="save" class="primary">Speichern</button>
-    </div>
-  </form>
-</dialog>
 
 <div id="toast" hidden></div>
 <script src="app.js"></script>
