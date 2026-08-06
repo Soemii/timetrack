@@ -232,21 +232,36 @@ $("#week-next").onclick = () => { S.monday = addDays(S.monday, 7); S.draft = nul
 const afterMutation = async () => { await loadEntries(); refreshStatus(); loadWeekChart(); };
 
 // --- Zeitstrahl ---
-const H0 = 7, H1 = 19, PXH = 44, TL_H = (H1 - H0) * PXH;
+const H0 = 0, H1 = 24, PXH = 44, TL_H = (H1 - H0) * PXH;
+const TL_VIEW_START = 7; // Default-Scrollposition: Ausschnitt ab 7 Uhr
 
+// Ein Entry ergibt pro berührtem Kalendertag ein Segment; über Mitternacht
+// laufende Einträge erscheinen so an Tag A (bis 24:00) und Tag B (ab 0:00).
 function weekBlocks() {
   const monIso = isoDate(S.monday);
   const now = new Date();
-  return S.entries.map((e) => {
-    const d = new Date(e.start);
-    const day = Math.round((new Date(isoDate(d) + "T12:00:00") - new Date(monIso + "T12:00:00")) / 86400000);
-    let f = hourOf(e.start);
-    let t = e.open ? now.getHours() + now.getMinutes() / 60 : hourOf(e.end);
-    if (!e.open && isoDate(new Date(e.end)) !== isoDate(d)) t = 24; // über Mitternacht: bis Tagesende zeichnen
-    if (S.resizing && S.resizing.id === e.id) { f = S.resizing.f; t = S.resizing.t; }
-    if (t <= f) t = f + 0.1;
-    return { id: e.id, entry: e, day, f, t, kind: e.kind, p: (e.projects || []).join("+"), note: e.note || "", open: e.open };
-  }).filter((b) => b.day >= 0 && b.day <= 6);
+  const segs = [];
+  for (const e of S.entries) {
+    const start = new Date(e.start);
+    const end = e.open ? now : new Date(e.end);
+    for (const d = new Date(start); isoDate(d) <= isoDate(end); d.setDate(d.getDate() + 1)) {
+      const day = Math.round((new Date(isoDate(d) + "T12:00:00") - new Date(monIso + "T12:00:00")) / 86400000);
+      const first = isoDate(d) === isoDate(start), last = isoDate(d) === isoDate(end);
+      if (day < 0 || day > 6) continue;
+      let f = first ? start.getHours() + start.getMinutes() / 60 : 0;
+      let t = last ? end.getHours() + end.getMinutes() / 60 : 24;
+      if (!first && last && t <= 0) { // endet exakt 0:00 → kein Sliver am Folgetag
+        const prev = segs[segs.length - 1];
+        if (prev && prev.id === e.id) prev.contBottom = false;
+        continue;
+      }
+      if (S.resizing && S.resizing.id === e.id && S.resizing.day === day) { f = S.resizing.f; t = S.resizing.t; }
+      if (t <= f) t = f + 0.1;
+      segs.push({ id: e.id, entry: e, day, f, t, kind: e.kind, p: (e.projects || []).join("+"),
+        note: e.note || "", open: e.open && last, contTop: !first, contBottom: !last });
+    }
+  }
+  return segs;
 }
 
 function renderTimeline() {
@@ -254,33 +269,40 @@ function renderTimeline() {
   if (S.draft) blocks.push({ ...S.draft, id: "draft", draft: true });
   const nDays = blocks.some((b) => b.day >= 5) ? 7 : 5;
 
-  const hoursEl = $("#tl-hours");
-  hoursEl.innerHTML = "";
+  const headsEl = $("#tl-heads");
+  const scrollEl = $("#tl-scroll");
+  const prevScroll = scrollEl.dataset.init ? scrollEl.scrollTop : TL_VIEW_START * PXH - 8;
+  headsEl.innerHTML = "";
+  scrollEl.innerHTML = "";
+  headsEl.style.gridTemplateColumns = scrollEl.style.gridTemplateColumns = `44px repeat(${nDays},1fr)`;
+  headsEl.appendChild(document.createElement("div"));
+
+  const hoursEl = document.createElement("div");
+  hoursEl.className = "tl-hours";
   for (let h = H0; h <= H1; h += 2) {
     const el = document.createElement("div");
     el.className = "tl-hour";
-    el.style.top = (h - H0) * PXH - 6 + "px";
+    el.style.top = Math.max(0, (h - H0) * PXH - 6) + "px";
     el.textContent = `${h}:00`;
     hoursEl.appendChild(el);
   }
+  scrollEl.appendChild(hoursEl);
 
-  const daysEl = $("#tl-days");
-  daysEl.innerHTML = "";
-  daysEl.style.gridTemplateColumns = `repeat(${nDays},1fr)`;
   const todayIso = isoDate(new Date());
   for (let i = 0; i < nDays; i++) {
     const dateIso = isoDate(addDays(S.monday, i));
-    const wrap = document.createElement("div");
     const head = document.createElement("div");
     head.className = "tl-dayhead" + (dateIso === todayIso ? " today" : "");
     head.textContent = dayLabel(dateIso);
+    headsEl.appendChild(head);
     const col = document.createElement("div");
     col.className = "tl-col";
     col.onpointerdown = startCreate(i, col, blocks);
     for (const b of blocks.filter((x) => x.day === i)) col.appendChild(blockEl(b, col, blocks));
-    wrap.append(head, col);
-    daysEl.appendChild(wrap);
+    scrollEl.appendChild(col);
   }
+  scrollEl.dataset.init = "1";
+  scrollEl.scrollTop = prevScroll;
   renderPanel();
   renderWeekSummary();
 }
@@ -288,24 +310,28 @@ function renderTimeline() {
 function blockEl(b, col, blocks) {
   const [bg, fg, bd] = projColor(b.p, b.kind);
   const isSel = S.selBlock === b.id;
+  const live = b.entry ? b.entry.open : false;
   const el = document.createElement("div");
-  el.className = "tl-block" + (isSel ? " sel" : "") + (b.open ? " live" : "") + (b.draft ? " draft" : "");
-  const top = Math.max(0, (b.f - H0) * PXH);
-  const bot = Math.min(TL_H, (b.t - H0) * PXH);
-  el.style.top = top + "px";
-  el.style.height = Math.max(bot - top - 3, 12) + "px";
+  el.className = "tl-block" + (isSel ? " sel" : "") + (live ? " live" : "") + (b.draft ? " draft" : "");
+  el.style.top = (b.f - H0) * PXH + "px";
+  el.style.height = Math.max((b.t - b.f) * PXH - 3, 12) + "px";
   el.style.background = bg;
   el.style.color = fg;
   el.style.borderColor = isSel ? fg : bd;
+  const time = b.entry
+    ? `${b.contTop ? "↥ " : ""}${clock(b.entry.start)}–${live ? "…läuft" : clock(b.entry.end)}${b.contBottom ? " ↧" : ""}`
+    : `${fmtH(b.f)}–${fmtH(b.t)}`;
   el.innerHTML = `<div class="tl-bl">${esc(b.kind === "break" ? "Pause" : b.p || "—")}</div>` +
-    `<div class="tl-bt">${fmtH(b.f)}–${b.open ? "…läuft" : fmtH(b.t)}</div>`;
+    `<div class="tl-bt">${time}</div>`;
   el.onclick = (e) => { e.stopPropagation(); S.selBlock = b.id; renderTimeline(); };
   if (!b.draft) {
-    const ht = document.createElement("div");
-    ht.className = "tl-h tl-ht";
-    ht.onpointerdown = startResize(b, "t", col, blocks);
-    el.appendChild(ht);
-    if (!b.open) {
+    if (!b.contTop) {
+      const ht = document.createElement("div");
+      ht.className = "tl-h tl-ht";
+      ht.onpointerdown = startResize(b, "t", col, blocks);
+      el.appendChild(ht);
+    }
+    if (!b.open && !b.contBottom) {
       const hb = document.createElement("div");
       hb.className = "tl-h tl-hb";
       hb.onpointerdown = startResize(b, "b", col, blocks);
@@ -366,7 +392,7 @@ function startResize(b, edge, col, blocks) {
       const dh = Math.round((ev.clientY - y0) / (PXH * scale) * 12) / 12;
       if (!dh && !moved) return;
       moved = true;
-      const r = { id: b.id, f: f0, t: t0 };
+      const r = { id: b.id, day: b.day, f: f0, t: t0 };
       if (edge === "t") r.f = Math.min(Math.max(prevEnd, f0 + dh), t0 - 0.25);
       else r.t = Math.max(Math.min(nextStart, t0 + dh), f0 + 0.25);
       S.resizing = r;
@@ -403,11 +429,12 @@ function renderPanel() {
   if (!b) return;
   const dateIso = isoDate(addDays(S.monday, b.day));
   const [bg, fg] = projColor(b.p, b.kind);
+  const live = b.entry ? b.entry.open : false;
   $("#ep-head").innerHTML = `<b>${dayLabel(dateIso)}</b> · ` +
     `<span class="chip" style="background:${bg};color:${fg}">${esc(b.kind === "break" ? "Pause" : b.p || "neu")}</span>` +
-    (b.open ? ' · <span class="muted-c">läuft</span>' : "");
+    (live ? ' · <span class="muted-c">läuft</span>' : "");
   $("#ep-from").value = b.entry ? clock(b.entry.start) : fmtH(b.f);
-  $("#ep-to").value = b.entry ? (b.open ? "" : clock(b.entry.end)) : fmtH(b.t);
+  $("#ep-to").value = b.entry ? (live ? "" : clock(b.entry.end)) : fmtH(b.t);
   $("#ep-kind").value = b.kind;
   $("#ep-project").value = b.p;
   $("#ep-note").value = b.note;
@@ -429,7 +456,7 @@ $("#ep-save").onclick = async () => {
   if (toV) {
     body.end = new Date(`${dateIso}T${toV}:00`).toISOString();
     if (body.end <= body.start) body.end = new Date(new Date(body.end).getTime() + 86400000).toISOString();
-  } else if (!b.open) { toast("Bis-Zeit fehlt."); return; }
+  } else if (!(b.entry && b.entry.open)) { toast("Bis-Zeit fehlt."); return; }
   try {
     if (b.draft) {
       const res = await api("POST", "/api/entries", body);
