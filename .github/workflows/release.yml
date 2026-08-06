@@ -2,6 +2,8 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Fallback: manuell über den Actions-Tab starten (HEAD von main muss auf dem Tag stehen)
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
