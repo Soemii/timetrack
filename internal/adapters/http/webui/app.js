@@ -124,6 +124,7 @@ async function refreshStatus() {
   $("#hdr-timer").classList.toggle("paused", paused);
   $("#hdr-stop").hidden = !working && !paused;
   $("#hdr-pause").hidden = !working;
+  $("#hdr-resume").hidden = !paused;
   tickTimer();
 
   const t = st.todaySummary;
@@ -175,6 +176,7 @@ $("#btn-pause").onclick = () => track("pause");
 $("#btn-resume").onclick = () => track("resume");
 $("#btn-stop").onclick = () => track("stop");
 $("#hdr-pause").onclick = () => track("pause");
+$("#hdr-resume").onclick = () => track("resume");
 $("#hdr-stop").onclick = () => track("stop");
 
 async function loadProjects() {
