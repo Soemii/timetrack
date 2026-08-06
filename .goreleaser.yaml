@@ -1,0 +1,19 @@
+version: 2
+project_name: timetrack
+builds:
+  - main: ./cmd
+    binary: timetrack
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    # Default-ldflags injizieren bereits -X main.version — nicht überschreiben.
+archives:
+  - formats: [binary]
+    # Muss zu assetName() in internal/update/update.go passen.
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+checksum:
+  name_template: checksums.txt

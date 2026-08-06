@@ -16,6 +16,9 @@ type App struct {
 	Stdout io.Writer
 	// Serve wird vom main-Paket gesetzt (vermeidet cli→http-Abhängigkeit erst ab M5).
 	Serve func(port int) error
+	// Version/Update werden vom main-Paket gesetzt (vermeidet cli→update-Abhängigkeit).
+	Version string
+	Update  func() error
 }
 
 const usage = `timetrack — Arbeitszeit-Tracker
@@ -51,7 +54,18 @@ Sonstiges:
   init                   Einrichtung (Wochenstunden, Bundesland, ...)
   config                 Einstellungen anzeigen
   serve [--port 8090]    Weboberfläche starten
+  version                Version anzeigen
+  update                 Auf neueste Version aktualisieren
 `
+
+// skipsInitCheck listet Befehle, die ohne eingerichtete DB funktionieren müssen.
+func skipsInitCheck(cmd string) bool {
+	switch cmd {
+	case "init", "help", "--help", "-h", "version", "update":
+		return true
+	}
+	return false
+}
 
 // Run führt einen CLI-Aufruf aus und liefert den Exit-Code.
 func (a *App) Run(args []string) int {
@@ -61,7 +75,7 @@ func (a *App) Run(args []string) int {
 	}
 	cmd, rest := args[0], args[1:]
 
-	if cmd != "init" && cmd != "help" && cmd != "--help" && cmd != "-h" && !a.Svc.Initialized() {
+	if !skipsInitCheck(cmd) && !a.Svc.Initialized() {
 		fmt.Fprintln(a.Stdout, "Noch nicht eingerichtet — bitte zuerst 'timetrack init' ausführen.")
 		return 1
 	}
@@ -102,6 +116,10 @@ func (a *App) Run(args []string) int {
 		err = a.cmdProject(rest)
 	case "serve":
 		err = a.cmdServe(rest)
+	case "version":
+		fmt.Fprintln(a.Stdout, a.Version)
+	case "update":
+		err = a.Update()
 	default:
 		fmt.Fprintf(a.Stdout, "Unbekannter Befehl %q — 'timetrack help' zeigt alle Befehle.\n", cmd)
 		return 1

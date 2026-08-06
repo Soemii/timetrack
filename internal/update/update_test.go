@@ -1,0 +1,130 @@
+package update
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestVersionLess(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"v1.0.0", "v1.0.0", false},
+		{"v1.0.0", "v1.0.1", true},
+		{"v1.0.0", "v1.1.0", true},
+		{"v1.9.9", "v2.0.0", true},
+		{"v2.0.0", "v1.9.9", false},
+		{"1.0.0", "v1.0.1", true}, // ohne v-Präfix
+		{"v1.0.0", "v1.0.10", true},
+		{"dev", "v1.0.0", false}, // unparsebar ⇒ nicht neuer
+		{"v1.0.0", "banana", false},
+		{"v1.0", "v1.0.1", false}, // zu wenig Teile
+	}
+	for _, c := range cases {
+		if got := versionLess(c.a, c.b); got != c.want {
+			t.Errorf("versionLess(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// startFakeRelease startet einen Server, der Release-JSON, Binary und
+// Checksums liefert. sumLine erlaubt kaputte Checksummen zu testen.
+func startFakeRelease(t *testing.T, binary []byte, sumLine string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[
+			{"name":%q,"browser_download_url":%q},
+			{"name":"checksums.txt","browser_download_url":%q}]}`,
+			assetName(), srv.URL+"/bin", srv.URL+"/sums")
+	})
+	mux.HandleFunc("/bin", func(w http.ResponseWriter, r *http.Request) {
+		w.Write(binary)
+	})
+	mux.HandleFunc("/sums", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, sumLine)
+	})
+	t.Setenv("TIMETRACK_UPDATE_URL", srv.URL+"/release")
+	return srv
+}
+
+func overrideExecutable(t *testing.T) string {
+	t.Helper()
+	target := filepath.Join(t.TempDir(), "timetrack")
+	if err := os.WriteFile(target, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := executable
+	executable = func() (string, error) { return target, nil }
+	t.Cleanup(func() { executable = orig })
+	return target
+}
+
+func TestRunReplacesBinary(t *testing.T) {
+	binary := []byte("new shiny binary")
+	sum := sha256.Sum256(binary)
+	startFakeRelease(t, binary, hex.EncodeToString(sum[:])+"  "+assetName())
+	target := overrideExecutable(t)
+
+	var out strings.Builder
+	if err := Run("v1.0.0", &out); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(binary) {
+		t.Errorf("target content = %q, want %q", got, binary)
+	}
+	fi, _ := os.Stat(target)
+	if fi.Mode().Perm() != 0o755 {
+		t.Errorf("mode = %v, want 0755", fi.Mode().Perm())
+	}
+	if !strings.Contains(out.String(), "v9.9.9") {
+		t.Errorf("output missing new version: %q", out.String())
+	}
+}
+
+func TestRunChecksumMismatch(t *testing.T) {
+	startFakeRelease(t, []byte("new shiny binary"),
+		strings.Repeat("0", 64)+"  "+assetName())
+	target := overrideExecutable(t)
+
+	err := Run("v1.0.0", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "Checksumme") {
+		t.Fatalf("want checksum error, got %v", err)
+	}
+	got, _ := os.ReadFile(target)
+	if string(got) != "old binary" {
+		t.Errorf("target was modified despite checksum mismatch: %q", got)
+	}
+}
+
+func TestRunAlreadyCurrent(t *testing.T) {
+	startFakeRelease(t, nil, "")
+	var out strings.Builder
+	if err := Run("v9.9.9", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "aktuell") {
+		t.Errorf("output = %q, want 'aktuell'", out.String())
+	}
+}
+
+func TestRunDevBuild(t *testing.T) {
+	if err := Run("dev", io.Discard); err == nil {
+		t.Fatal("want error for dev build")
+	}
+}
