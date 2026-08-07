@@ -291,9 +291,22 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request, params ap
 	}
 	out := make([]api.Project, len(projects))
 	for i, p := range projects {
-		out[i] = api.Project{Id: p.ID, Name: p.Name, Archived: p.Archived}
+		out[i] = api.Project{Id: p.ID, Name: p.Name, Archived: p.Archived, Color: optStr(p.Color), Note: optStr(p.Note)}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
+	var body api.CreateProjectJSONRequestBody
+	if !decode(w, r, &body) {
+		return
+	}
+	p, err := h.Svc.CreateProjectExplicit(body.Name, deref(body.Color), deref(body.Note))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, api.Project{Id: p.ID, Name: p.Name, Archived: p.Archived, Color: optStr(p.Color), Note: optStr(p.Note)})
 }
 
 func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request, id int64) {
@@ -309,6 +322,12 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request, id int64
 	}
 	if body.Archived != nil && *body.Archived {
 		if err := h.Svc.ArchiveProject(id); err != nil {
+			writeErr(w, err)
+			return
+		}
+	}
+	if body.Color != nil || body.Note != nil {
+		if err := h.Svc.UpdateProjectMeta(id, body.Color, body.Note); err != nil {
 			writeErr(w, err)
 			return
 		}

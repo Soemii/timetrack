@@ -81,6 +81,8 @@ type Project struct {
 	ID       int64
 	Name     string
 	Archived bool
+	Color    string // leer = keine Farbe zugewiesen
+	Note     string
 }
 
 type AbsenceType string

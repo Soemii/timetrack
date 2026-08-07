@@ -1,0 +1,2 @@
+ALTER TABLE projects DROP COLUMN color;
+ALTER TABLE projects DROP COLUMN note;

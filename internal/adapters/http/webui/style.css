@@ -72,22 +72,9 @@ input[type=checkbox] { accent-color: var(--accent); }
 .chip-sick { background: var(--warn-soft); color: var(--warn); }
 .chip-hol { background: var(--grid); color: var(--muted); }
 
-/* Projekt-Farbklassen (Hash aus app.js), hell + dunkel */
-.pc0 { background: rgba(194, 24, 60, .12); color: #c2183c; border-color: rgba(194, 24, 60, .4); }
-.pc1 { background: rgba(179, 84, 15, .12); color: #b3540f; border-color: rgba(179, 84, 15, .4); }
-.pc2 { background: rgba(38, 33, 25, .08); color: #5d564a; border-color: rgba(38, 33, 25, .3); }
-.pc3 { background: rgba(46, 125, 79, .12); color: #2e7d4f; border-color: rgba(46, 125, 79, .4); }
+/* Projektfarben kommen als Inline-Styles aus app.js (colorOf/tint); nur Pause bleibt Klasse */
 .pc-break { background: var(--grid); color: var(--muted); border-color: var(--border2); }
-:root[data-theme="dark"] .pc0 { background: rgba(240, 84, 109, .16); color: #f0546d; border-color: rgba(240, 84, 109, .45); }
-:root[data-theme="dark"] .pc1 { background: rgba(224, 135, 63, .14); color: #e0873f; border-color: rgba(224, 135, 63, .45); }
-:root[data-theme="dark"] .pc2 { background: rgba(237, 232, 221, .08); color: #b8b0a0; border-color: rgba(237, 232, 221, .3); }
-:root[data-theme="dark"] .pc3 { background: rgba(99, 189, 138, .14); color: #63bd8a; border-color: rgba(99, 189, 138, .45); }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .pc0 { background: rgba(240, 84, 109, .16); color: #f0546d; border-color: rgba(240, 84, 109, .45); }
-  :root:not([data-theme="light"]) .pc1 { background: rgba(224, 135, 63, .14); color: #e0873f; border-color: rgba(224, 135, 63, .45); }
-  :root:not([data-theme="light"]) .pc2 { background: rgba(237, 232, 221, .08); color: #b8b0a0; border-color: rgba(237, 232, 221, .3); }
-  :root:not([data-theme="light"]) .pc3 { background: rgba(99, 189, 138, .14); color: #63bd8a; border-color: rgba(99, 189, 138, .45); }
-}
+.pdot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; margin-right: 4px; box-shadow: 0 0 0 1.5px var(--card); }
 
 /* --- Status --- */
 .status-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; margin-bottom: 14px; }
@@ -148,6 +135,8 @@ input[type=checkbox] { accent-color: var(--accent); }
 .ep-stack { display: flex; flex-direction: column; gap: 9px; }
 .ep-stack input, .ep-stack select { background: var(--card); border-color: var(--border2); padding: 7px 10px; font-size: 12.5px; border-radius: 7px; }
 .ep-head { font-size: 13px; }
+.ep-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pchip { padding: 5px 11px; border-radius: 20px; font: 600 12px var(--sans); border: 1.5px solid var(--border2); background: var(--card); color: var(--muted); }
 .ep-times { display: flex; gap: 8px; align-items: center; }
 .ep-times input { width: 86px; }
 .ep-row { display: flex; gap: 8px; }
@@ -193,6 +182,16 @@ tbody tr:hover td { background: var(--hover); }
 .bar-row .mono { font-size: 12.5px; }
 .bar-track { height: 12px; border-radius: 6px; background: var(--row); overflow: hidden; }
 .bar { height: 100%; background: var(--accent); border-radius: 6px; min-width: 2px; }
+
+/* --- Projekte --- */
+.proj-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+.proj-bar input { margin-left: auto; width: 200px; background: var(--card); }
+.proj-name { display: flex; align-items: center; gap: 9px; font-weight: 600; }
+.proj-dot { width: 14px; height: 14px; border-radius: 4px; flex: none; background: var(--border2); }
+.swatches { display: flex; gap: 5px; }
+.swatch { width: 22px; height: 22px; border-radius: 6px; border: 2px solid transparent; padding: 0; }
+.swatch.active { border-color: var(--fg); }
+.proj-note { width: 100%; max-width: 320px; background: var(--card); padding: 6px 10px; font-size: 12.5px; border-radius: 7px; }
 
 /* --- Abwesenheiten --- */
 .abs-grid { display: grid; grid-template-columns: 320px 1fr; gap: 14px; align-items: start; }

@@ -32,6 +32,7 @@ type Repository interface {
 	Projects(includeArchived bool) ([]domain.Project, error)
 	RenameProject(id int64, name string) error
 	SetProjectArchived(id int64, archived bool) error
+	SetProjectMeta(id int64, color, note string) error
 
 	// Absences
 	CreateAbsence(a domain.Absence) (int64, error)

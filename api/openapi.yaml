@@ -141,6 +141,26 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Project" }
         default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                color: { type: string }
+                note: { type: string }
+      responses:
+        "201":
+          description: Angelegt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        default: { $ref: "#/components/responses/Error" }
   /api/projects/{id}:
     put:
       operationId: updateProject
@@ -155,6 +175,8 @@ paths:
               properties:
                 name: { type: string }
                 archived: { type: boolean }
+                color: { type: string }
+                note: { type: string }
       responses:
         "204": { description: Geändert }
         default: { $ref: "#/components/responses/Error" }
@@ -336,6 +358,8 @@ components:
         id: { type: integer, format: int64 }
         name: { type: string }
         archived: { type: boolean }
+        color: { type: string }
+        note: { type: string }
     Absence:
       type: object
       required: [id, date, type, fraction]

@@ -15,3 +15,6 @@ UPDATE projects SET name = ? WHERE id = ?;
 
 -- name: SetProjectArchived :exec
 UPDATE projects SET archived = ? WHERE id = ?;
+
+-- name: SetProjectMeta :exec
+UPDATE projects SET color = ?, note = ? WHERE id = ?;

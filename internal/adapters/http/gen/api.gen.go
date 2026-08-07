@@ -211,9 +211,11 @@ type EntryPatchKind string
 
 // Project defines model for Project.
 type Project struct {
-	Archived bool   `json:"archived"`
-	Id       int64  `json:"id"`
-	Name     string `json:"name"`
+	Archived bool    `json:"archived"`
+	Color    *string `json:"color,omitempty"`
+	Id       int64   `json:"id"`
+	Name     string  `json:"name"`
+	Note     *string `json:"note,omitempty"`
 }
 
 // ProjectShare defines model for ProjectShare.
@@ -288,10 +290,19 @@ type ListProjectsParams struct {
 	IncludeArchived *bool `form:"includeArchived,omitempty" json:"includeArchived,omitempty"`
 }
 
+// CreateProjectJSONBody defines parameters for CreateProject.
+type CreateProjectJSONBody struct {
+	Color *string `json:"color,omitempty"`
+	Name  string  `json:"name"`
+	Note  *string `json:"note,omitempty"`
+}
+
 // UpdateProjectJSONBody defines parameters for UpdateProject.
 type UpdateProjectJSONBody struct {
 	Archived *bool   `json:"archived,omitempty"`
+	Color    *string `json:"color,omitempty"`
 	Name     *string `json:"name,omitempty"`
+	Note     *string `json:"note,omitempty"`
 }
 
 // GetReportParams defines parameters for GetReport.
@@ -321,6 +332,9 @@ type CreateEntryJSONRequestBody = EntryInput
 
 // UpdateEntryJSONRequestBody defines body for UpdateEntry for application/json ContentType.
 type UpdateEntryJSONRequestBody = EntryPatch
+
+// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
+type CreateProjectJSONRequestBody CreateProjectJSONBody
 
 // UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
 type UpdateProjectJSONRequestBody UpdateProjectJSONBody
@@ -366,6 +380,9 @@ type ServerInterface interface {
 
 	// (GET /api/projects)
 	ListProjects(w http.ResponseWriter, r *http.Request, params ListProjectsParams)
+
+	// (POST /api/projects)
+	CreateProject(w http.ResponseWriter, r *http.Request)
 
 	// (PUT /api/projects/{id})
 	UpdateProject(w http.ResponseWriter, r *http.Request, id int64)
@@ -676,6 +693,20 @@ func (siw *ServerInterfaceWrapper) ListProjects(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// CreateProject operation middleware
+func (siw *ServerInterfaceWrapper) CreateProject(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateProject(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // UpdateProject operation middleware
 func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.Request) {
 
@@ -965,6 +996,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("PUT "+options.BaseURL+"/api/entries/{id}", wrapper.UpdateEntry)
 	m.HandleFunc("GET "+options.BaseURL+"/api/holidays", wrapper.GetHolidays)
 	m.HandleFunc("GET "+options.BaseURL+"/api/projects", wrapper.ListProjects)
+	m.HandleFunc("POST "+options.BaseURL+"/api/projects", wrapper.CreateProject)
 	m.HandleFunc("PUT "+options.BaseURL+"/api/projects/{id}", wrapper.UpdateProject)
 	m.HandleFunc("GET "+options.BaseURL+"/api/report", wrapper.GetReport)
 	m.HandleFunc("GET "+options.BaseURL+"/api/status", wrapper.GetStatus)

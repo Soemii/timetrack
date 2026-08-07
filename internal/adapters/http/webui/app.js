@@ -63,9 +63,17 @@ function isoWeek(d) {
   return 1 + Math.round(((t - w1) / 86400000 - 3 + ((w1.getDay() + 6) % 7)) / 7);
 }
 
-// --- Projektfarben: stabiler Namens-Hash auf CSS-Klassen pc0…pc3 (hell+dunkel im CSS) ---
-const projClass = (p, kind) => kind === "break" ? "pc-break"
-  : "pc" + ([...(p || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % 4);
+// --- Projektfarben: im Projekte-Tab vergeben (API), ohne Zuweisung stabiler Namens-Hash auf die Palette ---
+const PALETTE = ["#c2183c", "#b3540f", "#2e7d4f", "#1f6f8b", "#7b4bb7", "#a3245f", "#5d564a"];
+const colorOf = (name) => {
+  const p = S.projects.find((x) => x.name.toLowerCase() === (name || "").toLowerCase());
+  return (p && p.color) || PALETTE[[...(name || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
+};
+const tint = (c, pct) => `color-mix(in srgb, ${c} ${pct}%, transparent)`;
+const projChip = (name) => {
+  const c = colorOf(name);
+  return `<span class="chip" style="background:${tint(c, 12)};color:${c}">${esc(name)}</span>`;
+};
 
 // --- Theme: ohne Wahl folgt CSS dem System; Toggle setzt data-theme + localStorage,
 // zurück auf "auto" sobald die Wahl wieder der System-Präferenz entspricht ---
@@ -100,6 +108,8 @@ const S = {
   draft: null,      // ungespeicherter Zeitstrahl-Block
   resizing: null,   // {id, f, t} während Kanten-Drag
   absYear: new Date().getFullYear(),
+  projects: [],     // Projektliste inkl. Farbe/Notiz (Projekte-Tab)
+  ep: null,         // Panel-Edit-Zustand: {forSel, projects, kind, extras}
 };
 
 // --- Tabs ---
@@ -110,6 +120,7 @@ document.querySelectorAll("nav button").forEach((b) => {
     if (b.dataset.tab === "entries") loadEntries();
     if (b.dataset.tab === "absences") loadAbsences();
     if (b.dataset.tab === "report") loadReport();
+    if (b.dataset.tab === "projects") loadProjectsTab();
   };
 });
 
@@ -124,6 +135,9 @@ async function refreshStatus() {
   const chipEl = $("#status-project");
   chipEl.hidden = !st.project;
   chipEl.textContent = st.project || "";
+  const stc = colorOf(splitProjects(st.project || "")[0] || "");
+  chipEl.style.background = tint(stc, 12);
+  chipEl.style.color = stc;
   $("#status-detail").textContent = working || paused
     ? `seit ${clock(st.since)}` + (paused && st.openMinutes < 15 ? " — zählt erst ab 15 Min. als Pause" : "")
     : "";
@@ -193,8 +207,8 @@ $("#hdr-stop").onclick = () => track("stop");
 
 async function loadProjects() {
   try {
-    const ps = await api("GET", "/api/projects");
-    $("#project-list").innerHTML = ps.map((p) => `<option value="${esc(p.name)}">`).join("");
+    S.projects = await api("GET", "/api/projects");
+    $("#project-list").innerHTML = S.projects.map((p) => `<option value="${esc(p.name)}">`).join("");
   } catch { /* unkritisch */ }
 }
 
@@ -323,14 +337,28 @@ function blockEl(b, col, blocks) {
   const isSel = S.selBlock === b.id;
   const live = b.entry ? b.entry.open : false;
   const el = document.createElement("div");
-  el.className = "tl-block " + projClass(b.p, b.kind) +
+  el.className = "tl-block" + (b.kind === "break" ? " pc-break" : "") +
     (isSel ? " sel" : "") + (live ? " live" : "") + (b.draft ? " draft" : "");
   el.style.top = (b.f - H0) * PXH + "px";
   el.style.height = Math.max((b.t - b.f) * PXH - 3, 12) + "px";
+  let dots = "";
+  if (b.kind !== "break") {
+    const cols = (b.p ? b.p.split("+") : [""]).map(colorOf);
+    el.style.color = cols[0];
+    el.style.borderColor = isSel ? cols[0] : tint(cols[0], 40);
+    if (cols.length > 1) {
+      // Harte Farbstops: jeder Projektanteil als eigener Streifen
+      const n = cols.length;
+      el.style.backgroundImage = `linear-gradient(135deg,${cols.map((c, j) => `${tint(c, 12)} ${j / n * 100}% ${(j + 1) / n * 100}%`).join(",")})`;
+      dots = cols.map((c) => `<span class="pdot" style="background:${c}"></span>`).join("");
+    } else {
+      el.style.backgroundColor = tint(cols[0], 12);
+    }
+  }
   const time = b.entry
     ? `${b.contTop ? "↥ " : ""}${clock(b.entry.start)}–${live ? "…läuft" : clock(b.entry.end)}${b.contBottom ? " ↧" : ""}`
     : `${fmtH(b.f)}–${fmtH(b.t)}`;
-  el.innerHTML = `<div class="tl-bl">${esc(b.kind === "break" ? "Pause" : b.p || "—")}</div>` +
+  el.innerHTML = `<div class="tl-bl">${dots}${esc(b.kind === "break" ? "Pause" : b.p || "—")}</div>` +
     `<div class="tl-bt">${time}</div>`;
   el.onclick = (e) => { e.stopPropagation(); S.selBlock = b.id; renderTimeline(); };
   if (!b.draft) {
@@ -375,7 +403,7 @@ function startCreate(dayIdx, col, blocks) {
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      $("#ep-project").focus();
+      $("#ep-note").focus();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -431,33 +459,95 @@ function selectedBlock() {
   return weekBlocks().find((b) => b.id === S.selBlock) || null;
 }
 
+// Panel-Edit-Zustand neu vom Block übernehmen (bei Auswahlwechsel)
+function epInit(b) {
+  const parts = b.kind === "break" ? [] : (b.p ? b.p.split("+") : []);
+  const known = S.projects.filter((p) => !p.archived).map((p) => p.name);
+  S.ep = {
+    forSel: S.selBlock,
+    kind: b.kind,
+    projects: parts,
+    orig: (b.entry ? b.entry.projects || [] : parts).slice(),
+    // Projekte des Blocks, die nicht (mehr) in der Projektliste stehen — bleiben wählbar
+    extras: parts.filter((x) => !known.some((k) => k.toLowerCase() === x.toLowerCase())),
+  };
+  $("#ep-week").checked = false;
+  $("#ep-note").value = b.note;
+}
+
+// Chip-Änderung anwenden: Draft färbt sofort im Zeitstrahl, sonst nur Panel
+function epSync() {
+  if (S.selBlock === "draft" && S.draft) {
+    S.draft.kind = S.ep.kind;
+    S.draft.p = S.ep.projects.join("+");
+    renderTimeline();
+  } else {
+    renderPanel();
+  }
+}
+
+function renderChips() {
+  const names = S.projects.filter((p) => !p.archived).map((p) => p.name);
+  for (const x of S.ep.extras) {
+    if (!names.some((n) => n.toLowerCase() === x.toLowerCase())) names.push(x);
+  }
+  const wrap = $("#ep-chips");
+  wrap.innerHTML = "";
+  for (const name of names) {
+    const on = S.ep.kind !== "break" && S.ep.projects.some((p) => p.toLowerCase() === name.toLowerCase());
+    const c = colorOf(name);
+    const btn = document.createElement("button");
+    btn.className = "pchip";
+    btn.textContent = name;
+    if (on) { btn.style.borderColor = c; btn.style.background = tint(c, 12); btn.style.color = c; }
+    btn.onclick = () => {
+      S.ep.projects = on
+        ? S.ep.projects.filter((p) => p.toLowerCase() !== name.toLowerCase())
+        : [...S.ep.projects, name];
+      S.ep.kind = "work";
+      epSync();
+    };
+    wrap.appendChild(btn);
+  }
+  const pause = document.createElement("button");
+  pause.className = "pchip" + (S.ep.kind === "break" ? " pc-break" : "");
+  pause.textContent = "Pause";
+  pause.onclick = () => { S.ep.kind = "break"; S.ep.projects = []; epSync(); };
+  wrap.appendChild(pause);
+}
+
 function renderPanel() {
   const b = selectedBlock();
   $("#ep-empty").hidden = !!b;
   $("#ep-form").hidden = !b;
-  if (!b) return;
+  if (!b) { S.ep = null; return; }
+  if (!S.ep || S.ep.forSel !== S.selBlock) epInit(b);
   const dateIso = isoDate(addDays(S.monday, b.day));
   const live = b.entry ? b.entry.open : false;
-  $("#ep-head").innerHTML = `<b>${dayLabel(dateIso)}</b> · ` +
-    `<span class="chip ${projClass(b.p, b.kind)}">${esc(b.kind === "break" ? "Pause" : b.p || "neu")}</span>` +
+  const hc = colorOf(S.ep.projects[0] || "");
+  const head = S.ep.kind === "break"
+    ? '<span class="chip pc-break">Pause</span>'
+    : `<span class="chip" style="background:${tint(hc, 12)};color:${hc}">${esc(S.ep.projects.join("+") || "neu")}</span>`;
+  $("#ep-head").innerHTML = `<b>${dayLabel(dateIso)}</b> · ` + head +
     (live ? ' · <span class="muted-c">läuft</span>' : "");
   $("#ep-from").value = b.entry ? clock(b.entry.start) : fmtH(b.f);
   $("#ep-to").value = b.entry ? (live ? "" : clock(b.entry.end)) : fmtH(b.t);
-  $("#ep-kind").value = b.kind;
-  $("#ep-project").value = b.p;
-  $("#ep-note").value = b.note;
+  renderChips();
+  const weekRow = $("#ep-week-row");
+  weekRow.hidden = !!b.draft || !S.ep.orig.length;
+  $("#ep-week-label").textContent = `Änderung auf alle ${S.ep.orig.join("+")}-Blöcke dieser Woche anwenden`;
   $("#ep-dup").hidden = $("#ep-del").hidden = !!b.draft;
 }
 
 $("#ep-save").onclick = async () => {
   const b = selectedBlock();
-  if (!b) return;
+  if (!b || !S.ep) return;
   const dateIso = isoDate(addDays(S.monday, b.day));
   const fromV = $("#ep-from").value, toV = $("#ep-to").value;
   if (!fromV) { toast("Von-Zeit fehlt."); return; }
   const body = {
-    kind: $("#ep-kind").value,
-    projects: splitProjects($("#ep-project").value),
+    kind: S.ep.kind,
+    projects: S.ep.kind === "break" ? [] : S.ep.projects,
     note: $("#ep-note").value,
     start: new Date(`${dateIso}T${fromV}:00`).toISOString(),
   };
@@ -472,7 +562,17 @@ $("#ep-save").onclick = async () => {
       S.selBlock = res.id;
     } else {
       await api("PUT", "/api/entries/" + b.id, body);
+      // Wochen-Anwenden: Projekt/Typ/Notiz auf alle Blöcke mit gleicher Projektmenge, Zeiten unverändert
+      if ($("#ep-week").checked && S.ep.orig.length) {
+        const key = (a) => (a || []).map((x) => x.toLowerCase()).sort().join("+");
+        const k0 = key(S.ep.orig);
+        for (const e of S.entries) {
+          if (e.id === b.id || key(e.projects) !== k0) continue;
+          await api("PUT", "/api/entries/" + e.id, { kind: body.kind, projects: body.projects, note: body.note });
+        }
+      }
     }
+    S.ep = null;
     afterMutation();
   } catch (e) { toast(e.message); }
 };
@@ -523,7 +623,7 @@ $("#entry-new").onclick = () => {
   S.draft = { day, f, t: Math.min(f + 1, H1), kind: "work", p: "", note: "" };
   S.selBlock = "draft";
   renderTimeline();
-  $("#ep-project").focus();
+  $("#ep-note").focus();
 };
 
 // --- Listen-Ansicht ---
@@ -571,7 +671,7 @@ function rowEl(e) {
     `<span class="mono">${clock(e.start)}–${endTxt}</span>` +
     `<span class="mono muted-c">${dur}</span>` +
     `<span><span class="chip ${isBreak ? "chip-break" : "chip-work"}">${isBreak ? "Pause" : "Arbeit"}</span></span>` +
-    `<span>${esc((e.projects || []).join("+"))}</span>` +
+    `<span class="proj-chips">${(e.projects || []).map(projChip).join(" ")}</span>` +
     `<span class="muted-c ellip">${esc(e.note || "")}</span>` +
     `<span class="lr-actions"><button class="rowbtn" data-a="edit">Bearbeiten</button>` +
     `<button class="rowbtn" data-a="dup" title="Duplizieren">⧉</button>` +
@@ -657,6 +757,59 @@ $("#bulk-del").onclick = async () => {
   S.sel.clear();
   afterMutation();
 };
+
+// --- Projekte ---
+async function loadProjectsTab() {
+  const mon = startOfWeek(new Date());
+  let rep;
+  try {
+    [S.projects, rep] = await Promise.all([
+      api("GET", "/api/projects"),
+      api("GET", `/api/report?from=${isoDate(mon)}&to=${isoDate(addDays(mon, 6))}`),
+    ]);
+  } catch (e) { toast(e.message); return; }
+  const week = Object.fromEntries((rep.projects || []).map((p) => [p.name.toLowerCase(), p.minutes]));
+  const tbody = $("#projects-table tbody");
+  tbody.innerHTML = "";
+  const patch = async (id, body) => {
+    try { await api("PUT", "/api/projects/" + id, body); } catch (e) { toast(e.message); }
+    loadProjectsTab();
+    loadProjects();
+  };
+  for (const p of S.projects) {
+    const c = colorOf(p.name);
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td><span class="proj-name"><span class="proj-dot" style="background:${c}"></span>${esc(p.name)}</span></td>` +
+      `<td><input class="proj-note" placeholder="Notiz"></td>` +
+      `<td><span class="swatches">${PALETTE.map((col) =>
+        `<button class="swatch${p.color === col ? " active" : ""}" style="background:${col}" data-c="${col}" title="${col}"></button>`).join("")}</span></td>` +
+      `<td class="mono">${week[p.name.toLowerCase()] ? hm(week[p.name.toLowerCase()]) : "–"}</td>` +
+      `<td><button class="rowbtn">Archivieren</button></td>`;
+    const noteEl = tr.querySelector(".proj-note");
+    noteEl.value = p.note || "";
+    noteEl.onchange = (ev) => patch(p.id, { note: ev.target.value });
+    tr.querySelectorAll(".swatch").forEach((sw) => { sw.onclick = () => patch(p.id, { color: sw.dataset.c }); });
+    tr.querySelector(".rowbtn").onclick = () => {
+      if (confirm(`Projekt "${p.name}" archivieren?`)) patch(p.id, { archived: true });
+    };
+    tbody.appendChild(tr);
+  }
+  if (!S.projects.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="muted-c">Noch keine Projekte — oben anlegen oder einfach einen Eintrag mit Projektnamen starten.</td></tr>';
+  }
+}
+$("#proj-create").onclick = async () => {
+  const name = $("#proj-new-name").value.trim();
+  if (!name) { toast("Projektname fehlt."); return; }
+  try {
+    await api("POST", "/api/projects", { name });
+    $("#proj-new-name").value = "";
+    loadProjectsTab();
+    loadProjects();
+  } catch (e) { toast(e.message); }
+};
+$("#proj-new-name").onkeydown = (ev) => { if (ev.key === "Enter") $("#proj-create").click(); };
 
 // --- Abwesenheiten ---
 async function loadAbsences() {
@@ -758,7 +911,7 @@ async function loadReport() {
   $("#report-projects").innerHTML = projects.map((p) =>
     `<div class="bar-row"><span class="ellip">${esc(p.name)}</span>` +
     `<span class="mono muted-c">${p.percent.toFixed(1)}%</span><span class="mono">${hm(p.minutes)}</span>` +
-    `<div class="bar-track"><div class="bar" style="width:${Math.max(p.percent, 1)}%"></div></div></div>`
+    `<div class="bar-track"><div class="bar" style="width:${Math.max(p.percent, 1)}%;background:${colorOf(p.name)}"></div></div></div>`
   ).join("") || '<p class="muted-c">Keine Projektzeiten im Zeitraum.</p>';
 }
 

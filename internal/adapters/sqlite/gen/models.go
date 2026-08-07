@@ -39,4 +39,6 @@ type Project struct {
 	Name      string
 	Archived  int64
 	CreatedAt int64
+	Color     sql.NullString
+	Note      sql.NullString
 }

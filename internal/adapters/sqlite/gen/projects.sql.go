@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 )
 
 const createProject = `-- name: CreateProject :one
@@ -26,7 +27,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (i
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, name, archived, created_at FROM projects WHERE id = ?
+SELECT id, name, archived, created_at, color, note FROM projects WHERE id = ?
 `
 
 func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
@@ -37,12 +38,14 @@ func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
 		&i.Name,
 		&i.Archived,
 		&i.CreatedAt,
+		&i.Color,
+		&i.Note,
 	)
 	return i, err
 }
 
 const getProjectByName = `-- name: GetProjectByName :one
-SELECT id, name, archived, created_at FROM projects WHERE name = ? COLLATE NOCASE
+SELECT id, name, archived, created_at, color, note FROM projects WHERE name = ? COLLATE NOCASE
 `
 
 func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, error) {
@@ -53,12 +56,14 @@ func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, e
 		&i.Name,
 		&i.Archived,
 		&i.CreatedAt,
+		&i.Color,
+		&i.Note,
 	)
 	return i, err
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, name, archived, created_at FROM projects WHERE archived = 0 OR ?1 ORDER BY name
+SELECT id, name, archived, created_at, color, note FROM projects WHERE archived = 0 OR ?1 ORDER BY name
 `
 
 func (q *Queries) ListProjects(ctx context.Context, includeArchived interface{}) ([]Project, error) {
@@ -75,6 +80,8 @@ func (q *Queries) ListProjects(ctx context.Context, includeArchived interface{})
 			&i.Name,
 			&i.Archived,
 			&i.CreatedAt,
+			&i.Color,
+			&i.Note,
 		); err != nil {
 			return nil, err
 		}
@@ -114,5 +121,20 @@ type SetProjectArchivedParams struct {
 
 func (q *Queries) SetProjectArchived(ctx context.Context, arg SetProjectArchivedParams) error {
 	_, err := q.db.ExecContext(ctx, setProjectArchived, arg.Archived, arg.ID)
+	return err
+}
+
+const setProjectMeta = `-- name: SetProjectMeta :exec
+UPDATE projects SET color = ?, note = ? WHERE id = ?
+`
+
+type SetProjectMetaParams struct {
+	Color sql.NullString
+	Note  sql.NullString
+	ID    int64
+}
+
+func (q *Queries) SetProjectMeta(ctx context.Context, arg SetProjectMetaParams) error {
+	_, err := q.db.ExecContext(ctx, setProjectMeta, arg.Color, arg.Note, arg.ID)
 	return err
 }

@@ -193,7 +193,7 @@ func (r *Repo) EntriesBetween(from, to, now time.Time) ([]domain.Segment, error)
 // --- Projects ---
 
 func toProject(p db.Project) domain.Project {
-	return domain.Project{ID: p.ID, Name: p.Name, Archived: p.Archived != 0}
+	return domain.Project{ID: p.ID, Name: p.Name, Archived: p.Archived != 0, Color: p.Color.String, Note: p.Note.String}
 }
 
 func (r *Repo) ProjectByName(name string) (*domain.Project, error) {
@@ -246,6 +246,10 @@ func (r *Repo) SetProjectArchived(id int64, archived bool) error {
 		a = 1
 	}
 	return r.q.SetProjectArchived(ctx, db.SetProjectArchivedParams{Archived: a, ID: id})
+}
+
+func (r *Repo) SetProjectMeta(id int64, color, note string) error {
+	return r.q.SetProjectMeta(ctx, db.SetProjectMetaParams{Color: nullStr(color), Note: nullStr(note), ID: id})
 }
 
 // --- Absences ---

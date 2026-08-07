@@ -130,6 +130,14 @@ func (f *fakeRepo) SetProjectArchived(id int64, a bool) error {
 	return nil
 }
 
+func (f *fakeRepo) SetProjectMeta(id int64, color, note string) error {
+	p := f.projects[id]
+	p.Color = color
+	p.Note = note
+	f.projects[id] = p
+	return nil
+}
+
 func (f *fakeRepo) CreateAbsence(a domain.Absence) (int64, error) {
 	for _, x := range f.absences {
 		if x.Date == a.Date {

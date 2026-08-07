@@ -250,3 +250,34 @@ func TestAbsencesHolidaysConfig(t *testing.T) {
 		t.Errorf("config nach PUT: %v", cfg)
 	}
 }
+
+func TestProjectsCRUD(t *testing.T) {
+	srv, _ := testServer(t)
+
+	resp, body := call(t, srv, "POST", "/api/projects", map[string]string{"name": "acme", "color": "#c2183c", "note": "Kundenprojekt"})
+	if resp.StatusCode != 201 {
+		t.Fatalf("createProject: %d %s", resp.StatusCode, body)
+	}
+	var created map[string]any
+	_ = json.Unmarshal(body, &created)
+	id := int64(created["id"].(float64))
+
+	// Duplikat (case-insensitiv) → Konflikt
+	resp, body = call(t, srv, "POST", "/api/projects", map[string]string{"name": "ACME"})
+	if resp.StatusCode != 409 {
+		t.Fatalf("createProject Duplikat: %d %s", resp.StatusCode, body)
+	}
+
+	// Meta patchen
+	resp, body = call(t, srv, "PUT", fmt.Sprintf("/api/projects/%d", id), map[string]string{"color": "#2e7d4f"})
+	if resp.StatusCode != 204 {
+		t.Fatalf("updateProject: %d %s", resp.StatusCode, body)
+	}
+
+	resp, body = call(t, srv, "GET", "/api/projects", nil)
+	var list []map[string]any
+	_ = json.Unmarshal(body, &list)
+	if len(list) != 1 || list[0]["color"] != "#2e7d4f" || list[0]["note"] != "Kundenprojekt" {
+		t.Errorf("listProjects: %d %s", resp.StatusCode, body)
+	}
+}

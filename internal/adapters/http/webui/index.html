@@ -18,6 +18,7 @@
     <button data-tab="entries">Einträge</button>
     <button data-tab="absences">Abwesenheiten</button>
     <button data-tab="report">Bericht</button>
+    <button data-tab="projects">Projekte</button>
   </nav>
   <div class="header-right">
     <span id="hdr-timer" class="hdr-timer" hidden><span class="pulse"></span><span id="hdr-timer-text"></span></span>
@@ -88,9 +89,10 @@
         <div id="ep-form" class="ep-stack" hidden>
           <div id="ep-head" class="ep-head"></div>
           <div class="ep-times"><input type="time" id="ep-from"><span class="muted-c">–</span><input type="time" id="ep-to"></div>
-          <select id="ep-kind"><option value="work">Arbeit</option><option value="break">Pause</option></select>
-          <input id="ep-project" list="project-list" placeholder="Projekt(e)">
+          <div id="ep-chips" class="ep-chips"></div>
+          <div class="muted-c small">Mehrere Projekte anklickbar — der Block zeigt dann beide Farben</div>
           <input id="ep-note" placeholder="Notiz">
+          <label class="check small" id="ep-week-row"><input type="checkbox" id="ep-week"> <span id="ep-week-label"></span></label>
           <button id="ep-save" class="primary">Speichern</button>
           <div class="ep-row"><button id="ep-dup" class="btn">Duplizieren</button><button id="ep-del" class="btn danger-text">Löschen</button></div>
         </div>
@@ -111,6 +113,20 @@
       <button id="bulk-clear" class="linklike">Auswahl aufheben</button>
     </div>
     <div class="card table-card"><div id="entries-list"></div></div>
+  </div>
+</section>
+
+<section id="tab-projects" hidden>
+  <div class="proj-bar">
+    <span class="muted-c small">Farbe hier vergeben — sie gilt überall: Zeitstrahl, Chips, Bericht</span>
+    <input id="proj-new-name" placeholder="Neues Projekt…">
+    <button id="proj-create" class="primary">＋ Anlegen</button>
+  </div>
+  <div class="card table-card">
+    <table id="projects-table">
+      <thead><tr><th>Projekt</th><th>Notiz</th><th>Farbe</th><th>Diese Woche</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
   </div>
 </section>
 

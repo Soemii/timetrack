@@ -428,6 +428,45 @@ func (s *Service) ArchiveProject(id int64) error {
 	return s.repo.SetProjectArchived(id, true)
 }
 
+// UpdateProjectMeta ändert Farbe und/oder Notiz; nil lässt das Feld unverändert.
+func (s *Service) UpdateProjectMeta(id int64, color, note *string) error {
+	p, err := s.repo.GetProject(id)
+	if err != nil {
+		return err
+	}
+	if color != nil {
+		p.Color = *color
+	}
+	if note != nil {
+		p.Note = *note
+	}
+	return s.repo.SetProjectMeta(id, p.Color, p.Note)
+}
+
+// CreateProjectExplicit legt ein Projekt gezielt an (Projekte-Tab),
+// im Gegensatz zur impliziten Anlage über resolveProjects.
+func (s *Service) CreateProjectExplicit(name, color, note string) (domain.Project, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return domain.Project{}, fmt.Errorf("%w: Projektname fehlt", ErrConflict)
+	}
+	if existing, err := s.repo.ProjectByName(name); err != nil {
+		return domain.Project{}, err
+	} else if existing != nil {
+		return domain.Project{}, fmt.Errorf("%w: Projekt %q existiert bereits", ErrConflict, existing.Name)
+	}
+	id, err := s.repo.CreateProject(name, s.now())
+	if err != nil {
+		return domain.Project{}, err
+	}
+	if color != "" || note != "" {
+		if err := s.repo.SetProjectMeta(id, color, note); err != nil {
+			return domain.Project{}, err
+		}
+	}
+	return s.repo.GetProject(id)
+}
+
 // --- Absences ---
 
 // AddAbsence trägt eine Abwesenheit für einen Zeitraum ein.
