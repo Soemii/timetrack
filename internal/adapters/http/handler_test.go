@@ -281,3 +281,73 @@ func TestProjectsCRUD(t *testing.T) {
 		t.Errorf("listProjects: %d %s", resp.StatusCode, body)
 	}
 }
+
+func TestCompaniesCRUD(t *testing.T) {
+	srv, _ := testServer(t)
+
+	resp, body := call(t, srv, "POST", "/api/companies", map[string]any{"name": "Acme GmbH"})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create: %d %s", resp.StatusCode, body)
+	}
+	var co struct {
+		Id   int64  `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &co); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, _ = call(t, srv, "POST", "/api/companies", map[string]any{"name": "acme gmbh"})
+	if resp.StatusCode != 409 {
+		t.Errorf("Duplikat: erwartet 409, habe %d", resp.StatusCode)
+	}
+
+	resp, body = call(t, srv, "POST", "/api/projects", map[string]any{"name": "acme"})
+	if resp.StatusCode != 201 {
+		t.Fatalf("project create: %d %s", resp.StatusCode, body)
+	}
+	var proj struct {
+		Id int64 `json:"id"`
+	}
+	if err := json.Unmarshal(body, &proj); err != nil {
+		t.Fatal(err)
+	}
+	resp, body = call(t, srv, "PUT", fmt.Sprintf("/api/projects/%d", proj.Id), map[string]any{"companyId": co.Id})
+	if resp.StatusCode != 204 {
+		t.Fatalf("assign: %d %s", resp.StatusCode, body)
+	}
+
+	resp, body = call(t, srv, "GET", "/api/projects", nil)
+	if resp.StatusCode != 200 {
+		t.Fatal(resp.StatusCode)
+	}
+	var projects []struct {
+		Id        int64  `json:"id"`
+		CompanyId *int64 `json:"companyId"`
+	}
+	if err := json.Unmarshal(body, &projects); err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].CompanyId == nil || *projects[0].CompanyId != co.Id {
+		t.Errorf("companyId nicht gesetzt: %s", body)
+	}
+
+	resp, _ = call(t, srv, "DELETE", fmt.Sprintf("/api/companies/%d", co.Id), nil)
+	if resp.StatusCode != 409 {
+		t.Errorf("Löschen mit Projekt: erwartet 409, habe %d", resp.StatusCode)
+	}
+
+	resp, body = call(t, srv, "PUT", fmt.Sprintf("/api/projects/%d", proj.Id), map[string]any{"companyId": 0})
+	if resp.StatusCode != 204 {
+		t.Fatalf("unassign: %d %s", resp.StatusCode, body)
+	}
+	resp, _ = call(t, srv, "DELETE", fmt.Sprintf("/api/companies/%d", co.Id), nil)
+	if resp.StatusCode != 204 {
+		t.Errorf("Löschen ohne Zuweisung: %d", resp.StatusCode)
+	}
+	resp, body = call(t, srv, "GET", "/api/companies", nil)
+	if string(bytes.TrimSpace(body)) != "[]" && string(bytes.TrimSpace(body)) != "null" {
+		t.Errorf("erwartet leere Liste, habe %s", body)
+	}
+	_ = resp
+}

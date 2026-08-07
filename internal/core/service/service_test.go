@@ -11,19 +11,21 @@ import (
 
 // fakeRepo: In-Memory-Implementierung von ports.Repository.
 type fakeRepo struct {
-	entries  map[int64]domain.Segment
-	projects map[int64]domain.Project
-	absences map[int64]domain.Absence
-	config   map[string]string
-	nextID   int64
+	entries   map[int64]domain.Segment
+	projects  map[int64]domain.Project
+	absences  map[int64]domain.Absence
+	companies map[int64]domain.Company
+	config    map[string]string
+	nextID    int64
 }
 
 func newFake() *fakeRepo {
 	return &fakeRepo{
-		entries:  map[int64]domain.Segment{},
-		projects: map[int64]domain.Project{},
-		absences: map[int64]domain.Absence{},
-		config:   map[string]string{},
+		entries:   map[int64]domain.Segment{},
+		projects:  map[int64]domain.Project{},
+		absences:  map[int64]domain.Absence{},
+		companies: map[int64]domain.Company{},
+		config:    map[string]string{},
 	}
 }
 
@@ -136,6 +138,52 @@ func (f *fakeRepo) SetProjectMeta(id int64, color, note string) error {
 	p.Note = note
 	f.projects[id] = p
 	return nil
+}
+
+func (f *fakeRepo) SetProjectCompany(id, companyID int64) error {
+	p, ok := f.projects[id]
+	if !ok {
+		return errors.New("nicht gefunden")
+	}
+	p.CompanyID = companyID
+	f.projects[id] = p
+	return nil
+}
+
+func (f *fakeRepo) Companies() ([]domain.Company, error) {
+	out := []domain.Company{}
+	for _, c := range f.companies {
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) CompanyByName(name string) (*domain.Company, error) {
+	for _, c := range f.companies {
+		if strings.EqualFold(c.Name, name) {
+			cp := c
+			return &cp, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeRepo) CreateCompany(name string, _ time.Time) (int64, error) {
+	id := f.id()
+	f.companies[id] = domain.Company{ID: id, Name: name}
+	return id, nil
+}
+
+func (f *fakeRepo) DeleteCompany(id int64) error { delete(f.companies, id); return nil }
+
+func (f *fakeRepo) CountProjectsForCompany(id int64) (int64, error) {
+	var n int64
+	for _, p := range f.projects {
+		if p.CompanyID == id {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (f *fakeRepo) CreateAbsence(a domain.Absence) (int64, error) {
@@ -404,5 +452,45 @@ func TestHalfVacation(t *testing.T) {
 	want := -(4*time.Hour + 15*time.Minute)
 	if rep.Saldo != want {
 		t.Errorf("halber Urlaub: Saldo %v, want %v", rep.Saldo, want)
+	}
+}
+
+func TestCompanies(t *testing.T) {
+	svc, _ := testService(t)
+	co, err := svc.CreateCompany("Acme GmbH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateCompany("acme gmbh"); err == nil {
+		t.Error("Duplikat (case-insensitiv) sollte fehlschlagen")
+	}
+	if _, err := svc.CreateCompany("  "); err == nil {
+		t.Error("leerer Name sollte fehlschlagen")
+	}
+
+	p, err := svc.CreateProjectExplicit("acme", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetProjectCompany(p.ID, co.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := svc.repo.GetProject(p.ID)
+	if got.CompanyID != co.ID {
+		t.Errorf("CompanyID = %d, will %d", got.CompanyID, co.ID)
+	}
+
+	if err := svc.DeleteCompany(co.ID); err == nil {
+		t.Error("Löschen mit zugewiesenem Projekt sollte fehlschlagen")
+	}
+	if err := svc.SetProjectCompany(p.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteCompany(co.ID); err != nil {
+		t.Errorf("Löschen ohne Zuweisung: %v", err)
+	}
+	list, _ := svc.Companies()
+	if len(list) != 0 {
+		t.Errorf("erwartet leer, habe %v", list)
 	}
 }

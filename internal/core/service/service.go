@@ -467,6 +467,48 @@ func (s *Service) CreateProjectExplicit(name, color, note string) (domain.Projec
 	return s.repo.GetProject(id)
 }
 
+// SetProjectCompany ordnet ein Projekt einem Unternehmen zu (companyID 0 = entfernen).
+func (s *Service) SetProjectCompany(projectID, companyID int64) error {
+	if _, err := s.repo.GetProject(projectID); err != nil {
+		return err
+	}
+	return s.repo.SetProjectCompany(projectID, companyID)
+}
+
+// --- Companies ---
+
+func (s *Service) Companies() ([]domain.Company, error) {
+	return s.repo.Companies()
+}
+
+func (s *Service) CreateCompany(name string) (domain.Company, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return domain.Company{}, fmt.Errorf("%w: Unternehmensname fehlt", ErrConflict)
+	}
+	if existing, err := s.repo.CompanyByName(name); err != nil {
+		return domain.Company{}, err
+	} else if existing != nil {
+		return domain.Company{}, fmt.Errorf("%w: Unternehmen %q existiert bereits", ErrConflict, existing.Name)
+	}
+	id, err := s.repo.CreateCompany(name, s.now())
+	if err != nil {
+		return domain.Company{}, err
+	}
+	return domain.Company{ID: id, Name: name}, nil
+}
+
+func (s *Service) DeleteCompany(id int64) error {
+	n, err := s.repo.CountProjectsForCompany(id)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return fmt.Errorf("%w: Unternehmen wird noch von %d Projekt(en) verwendet", ErrConflict, n)
+	}
+	return s.repo.DeleteCompany(id)
+}
+
 // --- Absences ---
 
 // AddAbsence trägt eine Abwesenheit für einen Zeitraum ein.

@@ -63,6 +63,10 @@ func nullStr(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
 }
 
+func nullInt(n int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: n, Valid: n != 0}
+}
+
 // --- Entries ---
 
 // attachProjects lädt die Projektzuordnungen für die gegebenen Segmente.
@@ -193,7 +197,7 @@ func (r *Repo) EntriesBetween(from, to, now time.Time) ([]domain.Segment, error)
 // --- Projects ---
 
 func toProject(p db.Project) domain.Project {
-	return domain.Project{ID: p.ID, Name: p.Name, Archived: p.Archived != 0, Color: p.Color.String, Note: p.Note.String}
+	return domain.Project{ID: p.ID, Name: p.Name, Archived: p.Archived != 0, Color: p.Color.String, Note: p.Note.String, CompanyID: p.CompanyID.Int64}
 }
 
 func (r *Repo) ProjectByName(name string) (*domain.Project, error) {
@@ -250,6 +254,47 @@ func (r *Repo) SetProjectArchived(id int64, archived bool) error {
 
 func (r *Repo) SetProjectMeta(id int64, color, note string) error {
 	return r.q.SetProjectMeta(ctx, db.SetProjectMetaParams{Color: nullStr(color), Note: nullStr(note), ID: id})
+}
+
+func (r *Repo) SetProjectCompany(id, companyID int64) error {
+	return r.q.SetProjectCompany(ctx, db.SetProjectCompanyParams{CompanyID: nullInt(companyID), ID: id})
+}
+
+// --- Companies ---
+
+func (r *Repo) Companies() ([]domain.Company, error) {
+	rows, err := r.q.ListCompanies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Company, len(rows))
+	for i, c := range rows {
+		out[i] = domain.Company{ID: c.ID, Name: c.Name}
+	}
+	return out, nil
+}
+
+func (r *Repo) CompanyByName(name string) (*domain.Company, error) {
+	c, err := r.q.GetCompanyByName(ctx, name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &domain.Company{ID: c.ID, Name: c.Name}, nil
+}
+
+func (r *Repo) CreateCompany(name string, createdAt time.Time) (int64, error) {
+	return r.q.CreateCompany(ctx, db.CreateCompanyParams{Name: name, CreatedAt: createdAt.Unix()})
+}
+
+func (r *Repo) DeleteCompany(id int64) error {
+	return r.q.DeleteCompany(ctx, id)
+}
+
+func (r *Repo) CountProjectsForCompany(id int64) (int64, error) {
+	return r.q.CountProjectsForCompany(ctx, nullInt(id))
 }
 
 // --- Absences ---

@@ -109,6 +109,7 @@
       <b id="bulk-count"></b>
       <button id="bulk-project" class="bulk-btn">Projekt ändern</button>
       <button id="bulk-kind" class="bulk-btn">Typ ändern</button>
+      <button id="bulk-merge" class="bulk-btn">Zusammenführen</button>
       <button id="bulk-del" class="bulk-btn danger">Löschen</button>
       <button id="bulk-clear" class="linklike">Auswahl aufheben</button>
     </div>
@@ -124,9 +125,18 @@
   </div>
   <div class="card table-card">
     <table id="projects-table">
-      <thead><tr><th>Projekt</th><th>Notiz</th><th>Farbe</th><th>Diese Woche</th><th></th></tr></thead>
+      <thead><tr><th>Projekt</th><th>Notiz</th><th>Unternehmen</th><th>Farbe</th><th>Diese Woche</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
+  </div>
+  <div class="card companies-card">
+    <h2>Unternehmen</h2>
+    <div id="companies-list"></div>
+    <div class="row">
+      <input id="comp-new-name" placeholder="Neues Unternehmen…">
+      <button id="comp-create" class="primary">＋ Anlegen</button>
+    </div>
+    <p class="hint">Zuweisung passiert oben in der Projekt-Tabelle. Löschen geht nur, wenn kein Projekt mehr zugewiesen ist.</p>
   </div>
 </section>
 
@@ -185,6 +195,10 @@
   <div class="card">
     <h2>Projekte</h2>
     <div id="report-projects"></div>
+  </div>
+  <div class="card" id="report-companies-card" hidden>
+    <h2>Unternehmen</h2>
+    <div id="report-companies"></div>
   </div>
 </section>
 </main>

@@ -78,11 +78,17 @@ func (d Date) Before(o Date) bool {
 func (d Date) After(o Date) bool { return o.Before(d) }
 
 type Project struct {
-	ID       int64
-	Name     string
-	Archived bool
-	Color    string // leer = keine Farbe zugewiesen
-	Note     string
+	ID        int64
+	Name      string
+	Archived  bool
+	Color     string // leer = keine Farbe zugewiesen
+	Note      string
+	CompanyID int64 // 0 = keinem Unternehmen zugeordnet
+}
+
+type Company struct {
+	ID   int64
+	Name string
 }
 
 type AbsenceType string

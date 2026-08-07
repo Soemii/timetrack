@@ -108,7 +108,8 @@ const S = {
   draft: null,      // ungespeicherter Zeitstrahl-Block
   resizing: null,   // {id, f, t} während Kanten-Drag
   absYear: new Date().getFullYear(),
-  projects: [],     // Projektliste inkl. Farbe/Notiz (Projekte-Tab)
+  projects: [],     // Projektliste inkl. Farbe/Notiz/Unternehmen (Projekte-Tab)
+  companies: [],    // Unternehmen (Projekte-Tab, Bericht)
   ep: null,         // Panel-Edit-Zustand: {forSel, projects, kind, extras}
 };
 
@@ -258,8 +259,10 @@ $("#week-next").onclick = () => { S.monday = addDays(S.monday, 7); S.draft = nul
 const afterMutation = async () => { await loadEntries(); refreshStatus(); loadWeekChart(); };
 
 // --- Zeitstrahl ---
-const H0 = 0, H1 = 24, PXH = 44, TL_H = (H1 - H0) * PXH;
-const TL_VIEW_START = 7; // Default-Scrollposition: Ausschnitt ab 7 Uhr
+// Dynamischer Stundenbereich: mindestens 7–19, erweitert sich um die Einträge
+// der Woche (plus 1 h Zieh-Reserve am Rand). H0/H1 setzt renderTimeline().
+const PXH = 44;
+let H0 = 7, H1 = 19, TL_H = (H1 - H0) * PXH;
 
 // Ein Entry ergibt pro berührtem Kalendertag ein Segment; über Mitternacht
 // laufende Einträge erscheinen so an Tag A (bis 24:00) und Tag B (ab 0:00).
@@ -295,9 +298,15 @@ function renderTimeline() {
   if (S.draft) blocks.push({ ...S.draft, id: "draft", draft: true });
   const nDays = blocks.some((b) => b.day >= 5) ? 7 : 5;
 
+  const minF = Math.min(...blocks.map((b) => b.f));
+  const maxT = Math.max(...blocks.map((b) => b.t));
+  H0 = minF < 7 ? Math.max(0, Math.floor(minF) - 1) : 7;
+  H1 = maxT > 19 ? Math.min(24, Math.ceil(maxT) + 1) : 19;
+  TL_H = (H1 - H0) * PXH;
+
   const headsEl = $("#tl-heads");
   const scrollEl = $("#tl-scroll");
-  const prevScroll = scrollEl.dataset.init ? scrollEl.scrollTop : TL_VIEW_START * PXH - 8;
+  const prevScroll = scrollEl.dataset.init ? scrollEl.scrollTop : 0;
   headsEl.innerHTML = "";
   scrollEl.innerHTML = "";
   headsEl.style.gridTemplateColumns = scrollEl.style.gridTemplateColumns = `44px repeat(${nDays},1fr)`;
@@ -305,6 +314,7 @@ function renderTimeline() {
 
   const hoursEl = document.createElement("div");
   hoursEl.className = "tl-hours";
+  hoursEl.style.height = TL_H + "px";
   for (let h = H0; h <= H1; h += 2) {
     const el = document.createElement("div");
     el.className = "tl-hour";
@@ -323,6 +333,7 @@ function renderTimeline() {
     headsEl.appendChild(head);
     const col = document.createElement("div");
     col.className = "tl-col";
+    col.style.height = TL_H + "px";
     col.onpointerdown = startCreate(i, col, blocks);
     for (const b of blocks.filter((x) => x.day === i)) col.appendChild(blockEl(b, col, blocks));
     scrollEl.appendChild(col);
@@ -750,6 +761,24 @@ $("#bulk-kind").onclick = () => {
   if (v === null) return;
   bulkPatch({ kind: /^p/i.test(v.trim()) ? "break" : "work" });
 };
+// Zusammenführen: erster Eintrag wird auf die Gesamtspanne ausgedehnt
+// (Projekte vereinigt, Notizen aneinandergehängt), die übrigen gelöscht.
+$("#bulk-merge").onclick = async () => {
+  const sel = S.entries.filter((e) => S.sel.has(e.id)).sort((a, b) => a.start.localeCompare(b.start));
+  if (sel.length < 2) { toast("Mindestens zwei Einträge auswählen."); return; }
+  if (sel.some((e) => e.open)) { toast("Laufender Eintrag lässt sich nicht zusammenführen."); return; }
+  if (new Set(sel.map((e) => e.kind)).size > 1) { toast("Nur Einträge gleichen Typs zusammenführen."); return; }
+  const first = sel[0], last = sel[sel.length - 1];
+  const projects = [...new Set(sel.flatMap((e) => e.projects || []))];
+  const note = [...new Set(sel.map((e) => e.note).filter(Boolean))].join(" · ");
+  if (!confirm(`${sel.length} Einträge zu ${clock(first.start)}–${clock(last.end)} zusammenführen? Lücken dazwischen werden Teil des Eintrags.`)) return;
+  try {
+    for (const e of sel.slice(1)) await api("DELETE", "/api/entries/" + e.id);
+    await api("PUT", "/api/entries/" + first.id, { end: last.end, projects, note });
+  } catch (e) { toast(e.message); }
+  S.sel.clear();
+  afterMutation();
+};
 $("#bulk-del").onclick = async () => {
   if (!confirm(`${S.sel.size} Einträge löschen?`)) return;
   try { for (const id of S.sel) await api("DELETE", "/api/entries/" + id); }
@@ -763,8 +792,9 @@ async function loadProjectsTab() {
   const mon = startOfWeek(new Date());
   let rep;
   try {
-    [S.projects, rep] = await Promise.all([
+    [S.projects, S.companies, rep] = await Promise.all([
       api("GET", "/api/projects"),
+      api("GET", "/api/companies"),
       api("GET", `/api/report?from=${isoDate(mon)}&to=${isoDate(addDays(mon, 6))}`),
     ]);
   } catch (e) { toast(e.message); return; }
@@ -782,6 +812,8 @@ async function loadProjectsTab() {
     tr.innerHTML =
       `<td><span class="proj-name"><span class="proj-dot" style="background:${c}"></span>${esc(p.name)}</span></td>` +
       `<td><input class="proj-note" placeholder="Notiz"></td>` +
+      `<td><select class="proj-comp"><option value="0">–</option>${(S.companies || []).map((co) =>
+        `<option value="${co.id}"${p.companyId === co.id ? " selected" : ""}>${esc(co.name)}</option>`).join("")}</select></td>` +
       `<td><span class="swatches">${PALETTE.map((col) =>
         `<button class="swatch${p.color === col ? " active" : ""}" style="background:${col}" data-c="${col}" title="${col}"></button>`).join("")}</span></td>` +
       `<td class="mono">${week[p.name.toLowerCase()] ? hm(week[p.name.toLowerCase()]) : "–"}</td>` +
@@ -789,6 +821,7 @@ async function loadProjectsTab() {
     const noteEl = tr.querySelector(".proj-note");
     noteEl.value = p.note || "";
     noteEl.onchange = (ev) => patch(p.id, { note: ev.target.value });
+    tr.querySelector(".proj-comp").onchange = (ev) => patch(p.id, { companyId: Number(ev.target.value) });
     tr.querySelectorAll(".swatch").forEach((sw) => { sw.onclick = () => patch(p.id, { color: sw.dataset.c }); });
     tr.querySelector(".rowbtn").onclick = () => {
       if (confirm(`Projekt "${p.name}" archivieren?`)) patch(p.id, { archived: true });
@@ -796,9 +829,43 @@ async function loadProjectsTab() {
     tbody.appendChild(tr);
   }
   if (!S.projects.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="muted-c">Noch keine Projekte — oben anlegen oder einfach einen Eintrag mit Projektnamen starten.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="muted-c">Noch keine Projekte — oben anlegen oder einfach einen Eintrag mit Projektnamen starten.</td></tr>';
+  }
+  renderCompanies();
+}
+
+// --- Unternehmen ---
+function renderCompanies() {
+  const list = $("#companies-list");
+  list.innerHTML = "";
+  for (const co of S.companies || []) {
+    const used = S.projects.filter((p) => p.companyId === co.id).length;
+    const row = document.createElement("div");
+    row.className = "comp-row";
+    row.innerHTML = `<b>${esc(co.name)}</b>` +
+      `<span class="muted-c small">${used ? `${used} Projekt${used > 1 ? "e" : ""}` : "nicht zugewiesen"}</span>` +
+      `<button class="rowbtn"${used ? " disabled" : ""}>Löschen</button>`;
+    row.querySelector("button").onclick = async () => {
+      if (!confirm(`Unternehmen "${co.name}" löschen?`)) return;
+      try { await api("DELETE", "/api/companies/" + co.id); } catch (e) { toast(e.message); }
+      loadProjectsTab();
+    };
+    list.appendChild(row);
+  }
+  if (!(S.companies || []).length) {
+    list.innerHTML = '<p class="muted-c small nomargin">Noch keine Unternehmen.</p>';
   }
 }
+$("#comp-create").onclick = async () => {
+  const name = $("#comp-new-name").value.trim();
+  if (!name) { toast("Unternehmensname fehlt."); return; }
+  try {
+    await api("POST", "/api/companies", { name });
+    $("#comp-new-name").value = "";
+    loadProjectsTab();
+  } catch (e) { toast(e.message); }
+};
+$("#comp-new-name").onkeydown = (ev) => { if (ev.key === "Enter") $("#comp-create").click(); };
 $("#proj-create").onclick = async () => {
   const name = $("#proj-new-name").value.trim();
   if (!name) { toast("Projektname fehlt."); return; }
@@ -886,8 +953,13 @@ async function loadReport() {
     $('[data-range="week"]').classList.add("active");
   }
   let rep;
-  try { rep = await api("GET", `/api/report?from=${$("#report-from").value}&to=${$("#report-to").value}`); }
-  catch (e) { toast(e.message); return; }
+  try {
+    [rep, S.projects, S.companies] = await Promise.all([
+      api("GET", `/api/report?from=${$("#report-from").value}&to=${$("#report-to").value}`),
+      api("GET", "/api/projects"),
+      api("GET", "/api/companies"),
+    ]);
+  } catch (e) { toast(e.message); return; }
   $("#report-totals").innerHTML = [
     ["Ist", hm(rep.totalWorkedMinutes), ""],
     ["Soll", hm(rep.totalTargetMinutes), ""],
@@ -913,6 +985,29 @@ async function loadReport() {
     `<span class="mono muted-c">${p.percent.toFixed(1)}%</span><span class="mono">${hm(p.minutes)}</span>` +
     `<div class="bar-track"><div class="bar" style="width:${Math.max(p.percent, 1)}%;background:${colorOf(p.name)}"></div></div></div>`
   ).join("") || '<p class="muted-c">Keine Projektzeiten im Zeitraum.</p>';
+
+  // Unternehmen: Projektanteile clientseitig über die Zuordnung aufsummieren
+  const compOf = Object.fromEntries(S.projects.filter((p) => p.companyId).map((p) => [p.name.toLowerCase(), p.companyId]));
+  const byComp = new Map();
+  for (const p of rep.projects) {
+    const cid = compOf[p.name.toLowerCase()];
+    if (!cid) continue;
+    const agg = byComp.get(cid) || { minutes: 0, projs: [] };
+    agg.minutes += p.minutes;
+    agg.projs.push(p.name);
+    byComp.set(cid, agg);
+  }
+  const totalMin = rep.projects.reduce((a, p) => a + p.minutes, 0);
+  const rows = [...byComp].map(([cid, agg]) => ({
+    name: (S.companies.find((c) => c.id === cid) || { name: "?" }).name,
+    ...agg, pct: totalMin ? agg.minutes / totalMin * 100 : 0,
+  })).sort((a, b) => b.minutes - a.minutes);
+  $("#report-companies-card").hidden = !rows.length;
+  $("#report-companies").innerHTML = rows.map((c) =>
+    `<div class="bar-row"><span class="ellip"><b>${esc(c.name)}</b><br><span class="muted-c small">${esc(c.projs.join(", "))}</span></span>` +
+    `<span class="mono muted-c">${c.pct.toFixed(1)}%</span><span class="mono">${hm(c.minutes)}</span>` +
+    `<div class="bar-track"><div class="bar" style="width:${Math.max(c.pct, 1)}%;background:var(--fg)"></div></div></div>`
+  ).join("");
 }
 
 // --- Init ---

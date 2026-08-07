@@ -16,6 +16,12 @@ type Absence struct {
 	Note     sql.NullString
 }
 
+type Company struct {
+	ID        int64
+	Name      string
+	CreatedAt int64
+}
+
 type Config struct {
 	Key   string
 	Value string
@@ -41,4 +47,5 @@ type Project struct {
 	CreatedAt int64
 	Color     sql.NullString
 	Note      sql.NullString
+	CompanyID sql.NullInt64
 }

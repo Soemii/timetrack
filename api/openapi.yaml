@@ -177,8 +177,50 @@ paths:
                 archived: { type: boolean }
                 color: { type: string }
                 note: { type: string }
+                companyId:
+                  type: integer
+                  format: int64
+                  description: 0 entfernt die Zuordnung
       responses:
         "204": { description: Geändert }
+        default: { $ref: "#/components/responses/Error" }
+  /api/companies:
+    get:
+      operationId: listCompanies
+      responses:
+        "200":
+          description: Unternehmen
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Company" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createCompany
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "201":
+          description: Angelegt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Company" }
+        default: { $ref: "#/components/responses/Error" }
+  /api/companies/{id}:
+    delete:
+      operationId: deleteCompany
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "204": { description: Gelöscht }
         default: { $ref: "#/components/responses/Error" }
   /api/absences:
     get:
@@ -360,6 +402,13 @@ components:
         archived: { type: boolean }
         color: { type: string }
         note: { type: string }
+        companyId: { type: integer, format: int64 }
+    Company:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
     Absence:
       type: object
       required: [id, date, type, fraction]

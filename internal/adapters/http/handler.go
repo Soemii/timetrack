@@ -14,7 +14,7 @@ import (
 	"timetrack/internal/core/service"
 )
 
-//go:generate oapi-codegen --config ../../../api/oapi-config.yaml ../../../api/openapi.yaml
+//go:generate oapi-codegen --config ../../../api/oapi-config.yaml -o gen/api.gen.go ../../../api/openapi.yaml
 
 // Handler implementiert das generierte api.ServerInterface gegen den Service.
 type Handler struct {
@@ -49,6 +49,13 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+func optInt(n int64) *int64 {
+	if n == 0 {
+		return nil
+	}
+	return &n
 }
 
 // joinProjects macht aus dem API-Array die Service-Spec ("a+b").
@@ -291,7 +298,7 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request, params ap
 	}
 	out := make([]api.Project, len(projects))
 	for i, p := range projects {
-		out[i] = api.Project{Id: p.ID, Name: p.Name, Archived: p.Archived, Color: optStr(p.Color), Note: optStr(p.Note)}
+		out[i] = api.Project{Id: p.ID, Name: p.Name, Archived: p.Archived, Color: optStr(p.Color), Note: optStr(p.Note), CompanyId: optInt(p.CompanyID)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -331,6 +338,48 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request, id int64
 			writeErr(w, err)
 			return
 		}
+	}
+	if body.CompanyId != nil {
+		if err := h.Svc.SetProjectCompany(id, *body.CompanyId); err != nil {
+			writeErr(w, err)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Companies ---
+
+func (h *Handler) ListCompanies(w http.ResponseWriter, r *http.Request) {
+	companies, err := h.Svc.Companies()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	out := make([]api.Company, len(companies))
+	for i, c := range companies {
+		out[i] = api.Company{Id: c.ID, Name: c.Name}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Handler) CreateCompany(w http.ResponseWriter, r *http.Request) {
+	var body api.CreateCompanyJSONRequestBody
+	if !decode(w, r, &body) {
+		return
+	}
+	c, err := h.Svc.CreateCompany(body.Name)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, api.Company{Id: c.ID, Name: c.Name})
+}
+
+func (h *Handler) DeleteCompany(w http.ResponseWriter, r *http.Request, id int64) {
+	if err := h.Svc.DeleteCompany(id); err != nil {
+		writeErr(w, err)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

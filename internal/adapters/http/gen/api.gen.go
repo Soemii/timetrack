@@ -143,6 +143,12 @@ type Absence struct {
 // AbsenceType defines model for Absence.Type.
 type AbsenceType string
 
+// Company defines model for Company.
+type Company struct {
+	Id   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
 // Config defines model for Config.
 type Config struct {
 	Augsburg   *bool              `json:"augsburg,omitempty"`
@@ -211,11 +217,12 @@ type EntryPatchKind string
 
 // Project defines model for Project.
 type Project struct {
-	Archived bool    `json:"archived"`
-	Color    *string `json:"color,omitempty"`
-	Id       int64   `json:"id"`
-	Name     string  `json:"name"`
-	Note     *string `json:"note,omitempty"`
+	Archived  bool    `json:"archived"`
+	Color     *string `json:"color,omitempty"`
+	CompanyId *int64  `json:"companyId,omitempty"`
+	Id        int64   `json:"id"`
+	Name      string  `json:"name"`
+	Note      *string `json:"note,omitempty"`
 }
 
 // ProjectShare defines model for ProjectShare.
@@ -274,6 +281,11 @@ type CreateAbsenceJSONBody struct {
 // CreateAbsenceJSONBodyType defines parameters for CreateAbsence.
 type CreateAbsenceJSONBodyType string
 
+// CreateCompanyJSONBody defines parameters for CreateCompany.
+type CreateCompanyJSONBody struct {
+	Name string `json:"name"`
+}
+
 // ListEntriesParams defines parameters for ListEntries.
 type ListEntriesParams struct {
 	From openapi_types.Date `form:"from" json:"from"`
@@ -301,8 +313,11 @@ type CreateProjectJSONBody struct {
 type UpdateProjectJSONBody struct {
 	Archived *bool   `json:"archived,omitempty"`
 	Color    *string `json:"color,omitempty"`
-	Name     *string `json:"name,omitempty"`
-	Note     *string `json:"note,omitempty"`
+
+	// CompanyId 0 entfernt die Zuordnung
+	CompanyId *int64  `json:"companyId,omitempty"`
+	Name      *string `json:"name,omitempty"`
+	Note      *string `json:"note,omitempty"`
 }
 
 // GetReportParams defines parameters for GetReport.
@@ -323,6 +338,9 @@ type TrackingSwitchJSONBody struct {
 
 // CreateAbsenceJSONRequestBody defines body for CreateAbsence for application/json ContentType.
 type CreateAbsenceJSONRequestBody CreateAbsenceJSONBody
+
+// CreateCompanyJSONRequestBody defines body for CreateCompany for application/json ContentType.
+type CreateCompanyJSONRequestBody CreateCompanyJSONBody
 
 // PutConfigJSONRequestBody defines body for PutConfig for application/json ContentType.
 type PutConfigJSONRequestBody = Config
@@ -356,6 +374,15 @@ type ServerInterface interface {
 
 	// (DELETE /api/absences/{id})
 	DeleteAbsence(w http.ResponseWriter, r *http.Request, id int64)
+
+	// (GET /api/companies)
+	ListCompanies(w http.ResponseWriter, r *http.Request)
+
+	// (POST /api/companies)
+	CreateCompany(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /api/companies/{id})
+	DeleteCompany(w http.ResponseWriter, r *http.Request, id int64)
 
 	// (GET /api/config)
 	GetConfig(w http.ResponseWriter, r *http.Request)
@@ -482,6 +509,59 @@ func (siw *ServerInterfaceWrapper) DeleteAbsence(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteAbsence(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCompanies operation middleware
+func (siw *ServerInterfaceWrapper) ListCompanies(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCompanies(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCompany operation middleware
+func (siw *ServerInterfaceWrapper) CreateCompany(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCompany(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCompany operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCompany(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCompany(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -988,6 +1068,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("GET "+options.BaseURL+"/api/absences", wrapper.ListAbsences)
 	m.HandleFunc("POST "+options.BaseURL+"/api/absences", wrapper.CreateAbsence)
 	m.HandleFunc("DELETE "+options.BaseURL+"/api/absences/{id}", wrapper.DeleteAbsence)
+	m.HandleFunc("GET "+options.BaseURL+"/api/companies", wrapper.ListCompanies)
+	m.HandleFunc("POST "+options.BaseURL+"/api/companies", wrapper.CreateCompany)
+	m.HandleFunc("DELETE "+options.BaseURL+"/api/companies/{id}", wrapper.DeleteCompany)
 	m.HandleFunc("GET "+options.BaseURL+"/api/config", wrapper.GetConfig)
 	m.HandleFunc("PUT "+options.BaseURL+"/api/config", wrapper.PutConfig)
 	m.HandleFunc("GET "+options.BaseURL+"/api/entries", wrapper.ListEntries)

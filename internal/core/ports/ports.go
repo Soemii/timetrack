@@ -33,6 +33,14 @@ type Repository interface {
 	RenameProject(id int64, name string) error
 	SetProjectArchived(id int64, archived bool) error
 	SetProjectMeta(id int64, color, note string) error
+	SetProjectCompany(id, companyID int64) error // companyID 0 = Zuordnung entfernen
+
+	// Companies
+	Companies() ([]domain.Company, error)
+	CompanyByName(name string) (*domain.Company, error)
+	CreateCompany(name string, createdAt time.Time) (int64, error)
+	DeleteCompany(id int64) error
+	CountProjectsForCompany(id int64) (int64, error)
 
 	// Absences
 	CreateAbsence(a domain.Absence) (int64, error)
