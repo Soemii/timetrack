@@ -12,6 +12,23 @@ Persönlicher Arbeitszeit-Tracker als ein Go-Binary: CLI + lokale Weboberfläche
 - **Überstundensaldo:** fortlaufend ab konfigurierbarem Startdatum.
 - **Reports:** Woche/Monat/Jahr/frei — Ist vs. Soll, Saldo, Projekt-Prozente.
 - **Weboberfläche:** `timetrack serve` → http://localhost:8090 — voller Funktionsumfang, nur localhost, kein Login.
+- **Auto-Pause bei Bildschirmsperre:** Sperren des Bildschirms pausiert das Tracking rückwirkend zum Sperrzeitpunkt, Entsperren setzt es fort (Details unten).
+
+## Auto-Pause bei Bildschirmsperre
+
+Läuft ein Tracking, während der Bildschirm gesperrt ist (Sperre, Standby, Deckel zu), wird die gesperrte Zeit automatisch als Pause eingetragen — rückdatiert auf den Sperr- bzw. Entsperrzeitpunkt. Sperren unter 60 Sekunden werden ignoriert. Auto-Pausen tragen die Notiz `auto:screenlock`; manuell gestartete Pausen werden beim Entsperren **nicht** automatisch fortgesetzt.
+
+Es läuft kein Hintergrundprozess: Die Sperrzeiten werden beim nächsten Zugriff (CLI-Kommando oder Web-UI) nachträglich aus dem System rekonstruiert. `timetrack serve` muss dafür nicht laufen.
+
+- **macOS:** funktioniert ohne Einrichtung (Quelle: Unified Log von `loginwindow`).
+- **Windows:** zwei Wege, die sich ergänzen:
+  1. *Security-Event-Log* (Events 4800/4801, funktioniert auch ohne laufendes `serve`) — braucht einmalig als Administrator:
+     ```
+     auditpol /set /subcategory:"Other Logon/Logoff Events" /success:enable
+     ```
+     plus Leserecht aufs Security-Log (Mitgliedschaft in der Gruppe „Event Log Readers", sonst timetrack als Admin ausführen).
+  2. *Watcher in `timetrack serve`* — ohne Einrichtung, erkennt Sperren aber nur, solange serve läuft.
+- **Linux:** nicht unterstützt (Feature ist dort einfach aus).
 
 ## Installation
 

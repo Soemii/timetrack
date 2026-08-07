@@ -21,6 +21,9 @@ type Service struct {
 	repo ports.Repository
 	loc  *time.Location
 	Now  func() time.Time // injizierbar für Tests
+	// LockEvents liefert Sperr-/Entsperr-Events seit einem Zeitpunkt.
+	// nil = kein Lock-Tracking (nicht unterstütztes OS, Tests).
+	LockEvents func(since time.Time) ([]ports.LockEvent, error)
 }
 
 func New(repo ports.Repository, loc *time.Location) *Service {
@@ -159,6 +162,9 @@ func (s *Service) closeOrDrop(open *domain.Segment, now time.Time) error {
 }
 
 func (s *Service) Start(project string) error {
+	if err := s.syncLockState(true); err != nil {
+		return err
+	}
 	open, err := s.repo.OpenEntry()
 	if err != nil {
 		return err
@@ -179,6 +185,9 @@ func (s *Service) Start(project string) error {
 }
 
 func (s *Service) Pause() error {
+	if err := s.syncLockState(true); err != nil {
+		return err
+	}
 	open, err := s.repo.OpenEntry()
 	if err != nil {
 		return err
@@ -198,6 +207,9 @@ func (s *Service) Pause() error {
 }
 
 func (s *Service) Resume() error {
+	if err := s.syncLockState(true); err != nil {
+		return err
+	}
 	open, err := s.repo.OpenEntry()
 	if err != nil {
 		return err
@@ -216,6 +228,9 @@ func (s *Service) Resume() error {
 func (s *Service) Switch(project string) error {
 	if strings.TrimSpace(project) == "" {
 		return fmt.Errorf("%w: Projektname fehlt", ErrConflict)
+	}
+	if err := s.syncLockState(true); err != nil {
+		return err
 	}
 	open, err := s.repo.OpenEntry()
 	if err != nil {
@@ -238,6 +253,9 @@ func (s *Service) Switch(project string) error {
 
 // Stop schließt das offene Segment und liefert die Warnungen des Tages.
 func (s *Service) Stop() ([]string, error) {
+	if err := s.syncLockState(true); err != nil {
+		return nil, err
+	}
 	open, err := s.repo.OpenEntry()
 	if err != nil {
 		return nil, err
@@ -267,6 +285,9 @@ type Status struct {
 
 func (s *Service) Status() (Status, error) {
 	st := Status{State: StateIdle}
+	if err := s.syncLockState(false); err != nil {
+		return st, err
+	}
 	open, err := s.repo.OpenEntry()
 	if err != nil {
 		return st, err

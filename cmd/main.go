@@ -8,6 +8,7 @@ import (
 
 	"timetrack/internal/adapters/cli"
 	web "timetrack/internal/adapters/http"
+	"timetrack/internal/adapters/lockwatch"
 	"timetrack/internal/adapters/sqlite"
 	"timetrack/internal/core/service"
 	"timetrack/internal/update"
@@ -42,12 +43,16 @@ func main() {
 	defer sqlDB.Close()
 
 	svc := service.New(sqlite.NewRepo(sqlDB), time.Local)
+	svc.LockEvents = lockwatch.Events // nil auf nicht unterstützten OS
 	app := &cli.App{
-		Svc:     svc,
-		Loc:     time.Local,
-		Stdin:   os.Stdin,
-		Stdout:  os.Stdout,
-		Serve:   func(port int) error { return web.Serve(svc, time.Local, port) },
+		Svc:    svc,
+		Loc:    time.Local,
+		Stdin:  os.Stdin,
+		Stdout: os.Stdout,
+		Serve: func(port int) error {
+			lockwatch.StartWatcher(svc.SyncLocks)
+			return web.Serve(svc, time.Local, port)
+		},
 		Version: version,
 		Update:  func() error { return update.Run(version, os.Stdout) },
 	}

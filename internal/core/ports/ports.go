@@ -6,6 +6,12 @@ import (
 	"timetrack/internal/core/domain"
 )
 
+// LockEvent: Bildschirm gesperrt/entsperrt (Quelle: OS-Log oder Watcher).
+type LockEvent struct {
+	Time   time.Time
+	Locked bool // true = gesperrt
+}
+
 // Repository ist der einzige Persistenz-Port.
 // ponytail: ein Interface statt eines pro Aggregat — aufteilen falls es wächst.
 type Repository interface {
