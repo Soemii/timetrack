@@ -12,6 +12,12 @@ type LockEvent struct {
 	Locked bool // true = gesperrt
 }
 
+// Meeting: akzeptierter Kalendertermin aus der Outlook-ICS-Quelle.
+type Meeting struct {
+	Start, End time.Time
+	Subject    string
+}
+
 // Repository ist der einzige Persistenz-Port.
 // ponytail: ein Interface statt eines pro Aggregat — aufteilen falls es wächst.
 type Repository interface {

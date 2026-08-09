@@ -105,11 +105,51 @@ func (a *App) cmdInit() error {
 		return err
 	}
 
+	if err := a.promptOutlook(r); err != nil {
+		return err
+	}
+
 	fmt.Fprintln(a.Stdout, "")
 	fmt.Fprintln(a.Stdout, "Eingerichtet. Tagessoll:")
 	a.printWeekdayHours(wh)
 	fmt.Fprintln(a.Stdout, "Los geht's mit 'timetrack start [projekt]'.")
 	return nil
+}
+
+// promptOutlook fragt ICS-URL und Projekt-Regeln ab. Bestehende Werte sind
+// die Defaults (Re-Init behält die Konfiguration); "-" löscht die URL.
+func (a *App) promptOutlook(r *bufio.Reader) error {
+	set, err := a.Svc.OutlookSettings()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(a.Stdout, "")
+	fmt.Fprintln(a.Stdout, "Outlook-Import (optional): veröffentlichte Kalender-URL (.ics), \"-\" entfernt sie")
+	url := a.prompt(r, "ICS-Abo-URL", set.URL)
+	if url == "-" {
+		url = ""
+	}
+	rules := set.Rules
+	if url != "" {
+		var parts []string
+		for _, ru := range set.Rules {
+			parts = append(parts, ru.Contains+"="+ru.Project)
+		}
+		rulesStr := a.prompt(r, "Projekt-Regeln (z.B. sprint=Scrum,review=QA)", strings.Join(parts, ","))
+		rules = nil
+		if rulesStr != "" && rulesStr != "-" {
+			for _, part := range strings.Split(rulesStr, ",") {
+				kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+				if len(kv) != 2 {
+					return fmt.Errorf("ungültige Regel %q (erwartet z.B. sprint=Scrum)", part)
+				}
+				rules = append(rules, service.OutlookRule{
+					Contains: strings.TrimSpace(kv[0]), Project: strings.TrimSpace(kv[1]),
+				})
+			}
+		}
+	}
+	return a.Svc.SaveOutlookSettings(url, rules)
 }
 
 func (a *App) printWeekdayHours(wh domain.WeekdayHours) {
@@ -137,5 +177,20 @@ func (a *App) cmdConfig(args []string) error {
 		fmt.Fprintf(a.Stdout, "Augsburg: %t, katholisch: %t\n", set.Augsburg, set.Katholisch)
 	}
 	fmt.Fprintf(a.Stdout, "Saldo-Startdatum: %s\n", set.StartDate)
+	ol, err := a.Svc.OutlookSettings()
+	if err != nil {
+		return err
+	}
+	if ol.URL == "" {
+		fmt.Fprintln(a.Stdout, "Outlook-Import: aus")
+		return nil
+	}
+	fmt.Fprintf(a.Stdout, "Outlook-ICS-URL: %s\n", ol.URL)
+	for _, ru := range ol.Rules {
+		fmt.Fprintf(a.Stdout, "  Regel: Betreff enthält %q → Projekt %s\n", ru.Contains, ru.Project)
+	}
+	if ol.LastErr != "" {
+		fmt.Fprintf(a.Stdout, "Letzter Outlook-Abruf fehlgeschlagen: %s\n", ol.LastErr)
+	}
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"timetrack/internal/adapters/cli"
 	web "timetrack/internal/adapters/http"
 	"timetrack/internal/adapters/lockwatch"
+	"timetrack/internal/adapters/outlook"
 	"timetrack/internal/adapters/sqlite"
 	"timetrack/internal/core/service"
 	"timetrack/internal/update"
@@ -44,6 +45,7 @@ func main() {
 
 	svc := service.New(sqlite.NewRepo(sqlDB), time.Local)
 	svc.LockEvents = lockwatch.Events // nil auf nicht unterstützten OS
+	svc.Meetings = outlook.Fetch
 	app := &cli.App{
 		Svc:    svc,
 		Loc:    time.Local,

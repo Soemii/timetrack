@@ -24,6 +24,12 @@ type Service struct {
 	// LockEvents liefert Sperr-/Entsperr-Events seit einem Zeitpunkt.
 	// nil = kein Lock-Tracking (nicht unterstütztes OS, Tests).
 	LockEvents func(since time.Time) ([]ports.LockEvent, error)
+	// Meetings liefert Termine der Outlook-ICS-Quelle mit Ende in (from, to].
+	// nil = kein Outlook-Import (Tests).
+	Meetings func(url string, from, to time.Time) ([]ports.Meeting, error)
+	// lastOutlookFetch drosselt den ICS-Abruf in-memory — nicht im Config-
+	// Store, weil die Watermark durch vertagte Termine zurückhängen kann.
+	lastOutlookFetch time.Time
 }
 
 func New(repo ports.Repository, loc *time.Location) *Service {
@@ -288,6 +294,7 @@ func (s *Service) Status() (Status, error) {
 	if err := s.syncLockState(false); err != nil {
 		return st, err
 	}
+	_ = s.syncOutlook(false) // best effort wie Lock-Sync; Fehler landet in outlook_sync_error
 	open, err := s.repo.OpenEntry()
 	if err != nil {
 		return st, err
