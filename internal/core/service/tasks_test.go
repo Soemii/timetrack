@@ -103,3 +103,46 @@ func TestEntryTaskValidation(t *testing.T) {
 		t.Fatalf("nach Entfernen der Referenz muss Löschen gehen: %v", err)
 	}
 }
+
+// Repro Bug: Panel sendet HH:MM (Sekunden abgeschnitten). Bei nahtlos
+// getrackten Einträgen (Ende 10:00:42 = Start 10:00:42) rückte der Start beim
+// bloßen Aufgabe-Zuordnen 42s nach vorn → Fehl-Überschneidung mit dem Vorgänger.
+// Minutengleiche Zeit gilt als unverändert, gespeicherte Sekunden bleiben.
+func TestUpdateEntryMinuteEqualKeepsSeconds(t *testing.T) {
+	svc, now := testService(t)
+	acme := jiraProject(t, svc, "acme", "")
+	tk, err := svc.CreateTask(acme.ID, "Doku")
+	if err != nil {
+		t.Fatal(err)
+	}
+	day := now.Truncate(24 * time.Hour)
+	sec42 := day.Add(10*time.Hour + 42*time.Second) // 10:00:42
+	if _, err := svc.AddEntry(domain.KindWork, "acme", day.Add(9*time.Hour), sec42, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	id, err := svc.AddEntry(domain.KindWork, "acme", sec42, day.Add(11*time.Hour), "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Panel-Save: Start als 10:00:00 (minutengleich) + Aufgabe → darf nicht
+	// als Überschneidung scheitern, Sekunden bleiben erhalten.
+	start := day.Add(10 * time.Hour)
+	end := day.Add(11 * time.Hour)
+	if err := svc.UpdateEntry(id, EntryPatch{Start: &start, End: &end, Task: &tk.ID}); err != nil {
+		t.Fatalf("minutengleicher Start darf keine Überschneidung auslösen: %v", err)
+	}
+	e, err := svc.repo.GetEntry(id)
+	if err != nil || !e.Start.Equal(sec42) || e.TaskID != tk.ID {
+		t.Fatalf("Sekunden müssen erhalten bleiben: %+v, %v", e, err)
+	}
+
+	// Echte Änderung (andere Minute) wird übernommen.
+	late := day.Add(10*time.Hour + 5*time.Minute)
+	if err := svc.UpdateEntry(id, EntryPatch{Start: &late}); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ = svc.repo.GetEntry(id); !e.Start.Equal(late) {
+		t.Fatalf("echte Startänderung muss übernommen werden: %+v", e)
+	}
+}

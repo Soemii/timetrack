@@ -417,11 +417,17 @@ func (s *Service) UpdateEntry(id int64, p EntryPatch) error {
 			return err
 		}
 	}
-	if p.Start != nil {
+	// Minutengleiche Zeit gilt als unverändert: die UIs (Panel, Listen-Editor,
+	// CLI) liefern nur HH:MM, getrackte Einträge sind aber sekundengenau und
+	// nahtlos — ein abgeschnittener Start würde sonst in den Vorgänger rutschen
+	// und eine Fehl-Überschneidung auslösen.
+	if p.Start != nil && !p.Start.Truncate(time.Minute).Equal(e.Start.Truncate(time.Minute)) {
 		e.Start = *p.Start
 	}
 	if p.End != nil {
-		e.End = *p.End
+		if e.Open || !p.End.Truncate(time.Minute).Equal(e.End.Truncate(time.Minute)) {
+			e.End = *p.End
+		}
 		e.Open = false
 	}
 	if p.Note != nil {
