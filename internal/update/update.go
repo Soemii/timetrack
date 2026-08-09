@@ -17,11 +17,25 @@ import (
 )
 
 // ponytail: one env knob doubles as the smoke-test hook
-func apiURL() string {
+func apiURL(pre bool) string {
 	if u := os.Getenv("TIMETRACK_UPDATE_URL"); u != "" {
 		return u
 	}
+	if pre {
+		return "https://api.github.com/repos/Soemii/timetrack/releases?per_page=10"
+	}
 	return "https://api.github.com/repos/Soemii/timetrack/releases/latest"
+}
+
+// preChannel meldet, ob ~/.timetrack/update-channel auf "prerelease" steht.
+// Datei fehlt oder anderer Inhalt ⇒ stable.
+func preChannel() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".timetrack", "update-channel"))
+	return err == nil && strings.TrimSpace(string(b)) == "prerelease"
 }
 
 type release struct {
@@ -51,15 +65,39 @@ func assetName() string {
 }
 
 func fetchRelease(c *http.Client) (*release, error) {
-	body, err := download(c, apiURL())
+	pre := preChannel()
+	body, err := download(c, apiURL(pre))
 	if err != nil {
 		return nil, err
 	}
-	var rel release
-	if err := json.Unmarshal(body, &rel); err != nil {
+	if !pre {
+		var rel release
+		if err := json.Unmarshal(body, &rel); err != nil {
+			return nil, err
+		}
+		return &rel, nil
+	}
+	// Pre-Kanal: /releases sortiert nach created-Datum, nicht Version —
+	// darum höchste Version wählen statt erstes Element.
+	// ponytail: keine draft/prerelease-Felder — der Pre-Kanal will Prereleases
+	// sowieso, und unauthentifiziertes /releases liefert nie Drafts.
+	var rels []release
+	if err := json.Unmarshal(body, &rels); err != nil {
 		return nil, err
 	}
-	return &rel, nil
+	var best *release
+	for i := range rels {
+		if _, _, ok := parseVersion(rels[i].TagName); !ok {
+			continue
+		}
+		if best == nil || versionLess(best.TagName, rels[i].TagName) {
+			best = &rels[i]
+		}
+	}
+	if best == nil {
+		return nil, fmt.Errorf("keine Releases mit parsebarem Tag gefunden")
+	}
+	return best, nil
 }
 
 func download(c *http.Client, url string) ([]byte, error) {
@@ -74,36 +112,72 @@ func download(c *http.Client, url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// versionLess meldet, ob a < b (Tags wie v1.2.3). Unparsebares gilt als nicht-neuer.
-// ponytail: plain vX.Y.Z tags only, no pre-release ordering
+// versionLess meldet, ob a < b nach semver (Tags wie v1.2.3 oder v1.3.0-beta.1).
+// Unparsebares gilt als nicht-neuer.
 func versionLess(a, b string) bool {
-	pa, okA := parseVersion(a)
-	pb, okB := parseVersion(b)
+	ca, pa, okA := parseVersion(a)
+	cb, pb, okB := parseVersion(b)
 	if !okA || !okB {
 		return false
 	}
-	for i := range pa {
-		if pa[i] != pb[i] {
-			return pa[i] < pb[i]
+	for i := range ca {
+		if ca[i] != cb[i] {
+			return ca[i] < cb[i]
 		}
 	}
-	return false
+	if (pa == "") != (pb == "") {
+		return pa != "" // Release schlägt Prerelease
+	}
+	return preLess(pa, pb)
 }
 
-func parseVersion(v string) ([3]int, bool) {
-	var out [3]int
-	parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
+// parseVersion zerlegt vX.Y.Z[-pre] in Core und Prerelease-Suffix.
+// ponytail: Build-Metadata (+…) ignoriert — goreleaser emittiert das nie.
+func parseVersion(v string) (core [3]int, pre string, ok bool) {
+	v = strings.TrimPrefix(v, "v")
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		v, pre = v[:i], v[i+1:]
+	}
+	parts := strings.Split(v, ".")
 	if len(parts) != 3 {
-		return out, false
+		return core, "", false
 	}
 	for i, p := range parts {
 		n, err := strconv.Atoi(p)
 		if err != nil {
-			return out, false
+			return core, "", false
 		}
-		out[i] = n
+		core[i] = n
 	}
-	return out, true
+	return core, pre, true
+}
+
+// preLess ordnet Prerelease-Suffixe nach semver §11: dot-getrennte Identifier,
+// numerische numerisch, numerisch < alphanumerisch, weniger Felder < mehr.
+func preLess(a, b string) bool {
+	if a == b {
+		return false
+	}
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		na, errA := strconv.Atoi(as[i])
+		nb, errB := strconv.Atoi(bs[i])
+		switch {
+		case errA == nil && errB == nil:
+			if na != nb {
+				return na < nb
+			}
+		case errA == nil:
+			return true
+		case errB == nil:
+			return false
+		default:
+			if as[i] != bs[i] {
+				return as[i] < bs[i]
+			}
+		}
+	}
+	return len(as) < len(bs)
 }
 
 // MaybeNotify prüft höchstens einmal pro 24h auf eine neuere Version und

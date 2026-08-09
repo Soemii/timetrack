@@ -28,6 +28,16 @@ func TestVersionLess(t *testing.T) {
 		{"dev", "v1.0.0", false}, // unparsebar ⇒ nicht neuer
 		{"v1.0.0", "banana", false},
 		{"v1.0", "v1.0.1", false}, // zu wenig Teile
+		{"v1.3.0-beta.1", "v1.3.0", true}, // Release schlägt Prerelease
+		{"v1.3.0", "v1.3.0-beta.1", false},
+		{"v1.3.0-beta.1", "v1.2.9", false}, // Stable-Kanal wartet, bis Stable überholt
+		{"v1.2.9", "v1.3.0-beta.1", true},
+		{"v1.3.0-beta.1", "v1.3.0-beta.2", true},
+		{"v1.3.0-beta.9", "v1.3.0-beta.10", true}, // numerisch, nicht lexikalisch
+		{"v1.3.0-alpha", "v1.3.0-alpha.1", true},  // weniger Felder < mehr Felder
+		{"v1.3.0-1", "v1.3.0-beta", true},         // numerisch < alphanumerisch
+		{"v1.3.0-alpha.2", "v1.3.0-beta.1", true},
+		{"v1.3.0-beta.1", "v1.3.0-beta.1", false},
 	}
 	for _, c := range cases {
 		if got := versionLess(c.a, c.b); got != c.want {
@@ -40,6 +50,8 @@ func TestVersionLess(t *testing.T) {
 // Checksums liefert. sumLine erlaubt kaputte Checksummen zu testen.
 func startFakeRelease(t *testing.T, binary []byte, sumLine string) *httptest.Server {
 	t.Helper()
+	// Isoliert vom echten ~/.timetrack/update-channel des Dev-Rechners.
+	t.Setenv("HOME", t.TempDir())
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -57,6 +69,60 @@ func startFakeRelease(t *testing.T, binary []byte, sumLine string) *httptest.Ser
 	})
 	t.Setenv("TIMETRACK_UPDATE_URL", srv.URL+"/release")
 	return srv
+}
+
+func writeChannel(t *testing.T, content string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".timetrack")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "update-channel"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrereleaseChannelFetch(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	// v1.2.9 steht vorn (created-Datum), Beta ist aber die höchste Version.
+	mux.HandleFunc("/releases", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `[{"tag_name":"v1.2.9","assets":[]},
+			{"tag_name":"v1.3.0-beta.2","assets":[]},
+			{"tag_name":"banana","assets":[]}]`)
+	})
+	t.Setenv("TIMETRACK_UPDATE_URL", srv.URL+"/releases")
+	writeChannel(t, "prerelease\n")
+
+	rel, err := fetchRelease(srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.TagName != "v1.3.0-beta.2" {
+		t.Errorf("tag = %q, want v1.3.0-beta.2", rel.TagName)
+	}
+}
+
+func TestGarbageChannelFileStaysStable(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"tag_name":"v9.9.9","assets":[]}`)
+	})
+	t.Setenv("TIMETRACK_UPDATE_URL", srv.URL+"/release")
+	writeChannel(t, "banana")
+
+	rel, err := fetchRelease(srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.TagName != "v9.9.9" {
+		t.Errorf("tag = %q, want v9.9.9", rel.TagName)
+	}
 }
 
 func overrideExecutable(t *testing.T) string {
