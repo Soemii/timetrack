@@ -16,7 +16,7 @@ Persönlicher Arbeitszeit-Tracker als ein Go-Binary: CLI + lokale Weboberfläche
 
 ## Auto-Pause bei Bildschirmsperre
 
-Läuft ein Tracking, während der Bildschirm gesperrt ist (Sperre, Standby, Deckel zu), wird die gesperrte Zeit automatisch als Pause eingetragen — rückdatiert auf den Sperr- bzw. Entsperrzeitpunkt. Sperren unter 60 Sekunden werden ignoriert. Auto-Pausen tragen die Notiz `auto:screenlock`; manuell gestartete Pausen werden beim Entsperren **nicht** automatisch fortgesetzt.
+Läuft ein Tracking, während der Bildschirm gesperrt ist (Sperre, Standby, Deckel zu), wird die gesperrte Zeit automatisch als Pause eingetragen — rückdatiert auf den Sperr- bzw. Entsperrzeitpunkt. Sperren unter 15 Minuten werden ignoriert (ArbZG §4: solche Pausen zählen ohnehin als Arbeitszeit). Auto-Pausen tragen die Notiz `auto:screenlock`; manuell gestartete Pausen werden beim Entsperren **nicht** automatisch fortgesetzt.
 
 Es läuft kein Hintergrundprozess: Die Sperrzeiten werden beim nächsten Zugriff (CLI-Kommando oder Web-UI) nachträglich aus dem System rekonstruiert. `timetrack serve` muss dafür nicht laufen.
 

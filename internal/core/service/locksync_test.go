@@ -85,7 +85,7 @@ func TestLockSyncStillLockedThenUnlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	events = []ports.LockEvent{{Time: at(start, 5*time.Minute), Locked: true}}
-	*now = at(start, 10*time.Minute)
+	*now = at(start, 25*time.Minute)
 	st, err := svc.Status()
 	if err != nil {
 		t.Fatal(err)
@@ -99,17 +99,17 @@ func TestLockSyncStillLockedThenUnlock(t *testing.T) {
 	}
 
 	// Unlock kommt nach — nächster Sync resumed rückdatiert.
-	events = append(events, ports.LockEvent{Time: at(start, 12*time.Minute), Locked: false})
-	*now = at(start, 15*time.Minute)
+	events = append(events, ports.LockEvent{Time: at(start, 30*time.Minute), Locked: false})
+	*now = at(start, 35*time.Minute)
 	st, err = svc.Status()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.State != StateWorking || !st.Since.Equal(at(start, 12*time.Minute)) {
+	if st.State != StateWorking || !st.Since.Equal(at(start, 30*time.Minute)) {
 		t.Errorf("Auto-Resume: %+v", st)
 	}
 	segs = segments(t, svc)
-	if len(segs) != 3 || segs[1].Open || !segs[1].End.Equal(at(start, 12*time.Minute)) {
+	if len(segs) != 3 || segs[1].Open || !segs[1].End.Equal(at(start, 30*time.Minute)) {
 		t.Errorf("Break nicht am Unlock geschlossen: %+v", segs)
 	}
 }
@@ -122,9 +122,12 @@ func TestLockSyncShortLockIgnored(t *testing.T) {
 	if err := svc.Start("acme"); err != nil {
 		t.Fatal(err)
 	}
+	// Unter domain.MinLegalBreak (ArbZG §4): zählt eh als Arbeitszeit, kein Eintrag.
 	events = []ports.LockEvent{
 		{Time: at(start, 20*time.Minute), Locked: true},
 		{Time: at(start, 20*time.Minute+30*time.Second), Locked: false},
+		{Time: at(start, 25*time.Minute), Locked: true},
+		{Time: at(start, 35*time.Minute), Locked: false}, // 10 Min — auch zu kurz
 	}
 	*now = at(start, time.Hour)
 	if _, err := svc.Status(); err != nil {
@@ -132,7 +135,7 @@ func TestLockSyncShortLockIgnored(t *testing.T) {
 	}
 	segs := segments(t, svc)
 	if len(segs) != 1 || !segs[0].Open {
-		t.Errorf("Mikro-Sperre darf nichts ändern: %+v", segs)
+		t.Errorf("Sperre unter 15 Min darf nichts ändern: %+v", segs)
 	}
 }
 
@@ -146,7 +149,7 @@ func TestLockSyncTrailingShortLockDeferred(t *testing.T) {
 	}
 	lock := at(start, 10*time.Minute)
 	events = []ports.LockEvent{{Time: lock, Locked: true}}
-	*now = at(start, 10*time.Minute+30*time.Second) // Lock erst 30s alt
+	*now = at(start, 20*time.Minute) // Lock erst 10 Min alt
 	if _, err := svc.Status(); err != nil {
 		t.Fatal(err)
 	}
@@ -157,8 +160,8 @@ func TestLockSyncTrailingShortLockDeferred(t *testing.T) {
 	if wm != strconv.FormatInt(lock.Unix(), 10) {
 		t.Errorf("Watermark muss auf Lock-Zeit gedeckelt sein, got %q", wm)
 	}
-	// 40s später ist der Lock ≥60s alt → verarbeitet, rückdatiert.
-	*now = at(start, 10*time.Minute+70*time.Second)
+	// Später ist der Lock ≥15 Min alt → verarbeitet, rückdatiert.
+	*now = at(start, 26*time.Minute)
 	if _, err := svc.Status(); err != nil {
 		t.Fatal(err)
 	}
@@ -248,11 +251,11 @@ func TestLockSyncTwoPairsOneBatch(t *testing.T) {
 	}
 	events = []ports.LockEvent{
 		{Time: at(start, 10*time.Minute), Locked: true},
-		{Time: at(start, 15*time.Minute), Locked: false},
-		{Time: at(start, 30*time.Minute), Locked: true},
-		{Time: at(start, 40*time.Minute), Locked: false},
+		{Time: at(start, 30*time.Minute), Locked: false},
+		{Time: at(start, 45*time.Minute), Locked: true},
+		{Time: at(start, 65*time.Minute), Locked: false},
 	}
-	*now = at(start, time.Hour)
+	*now = at(start, 90*time.Minute)
 	if _, err := svc.Status(); err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +269,7 @@ func TestLockSyncTwoPairsOneBatch(t *testing.T) {
 			t.Errorf("Segment %d: Kind %v, want %v", i, segs[i].Kind, k)
 		}
 	}
-	if !segs[4].Open || !segs[4].Start.Equal(at(start, 40*time.Minute)) {
+	if !segs[4].Open || !segs[4].Start.Equal(at(start, 65*time.Minute)) {
 		t.Errorf("letztes work: %+v", segs[4])
 	}
 }
@@ -281,15 +284,15 @@ func TestLockSyncIdempotentReplay(t *testing.T) {
 	}
 	events = []ports.LockEvent{
 		{Time: at(start, 10*time.Minute), Locked: true},
-		{Time: at(start, 20*time.Minute), Locked: false},
+		{Time: at(start, 30*time.Minute), Locked: false},
 	}
-	*now = at(start, 30*time.Minute)
+	*now = at(start, 40*time.Minute)
 	if _, err := svc.Status(); err != nil {
 		t.Fatal(err)
 	}
 	before := len(segments(t, svc))
 	// Quelle liefert dieselben Events erneut (Slack-Replay).
-	*now = at(start, 65*time.Minute)
+	*now = at(start, 75*time.Minute)
 	if _, err := svc.Status(); err != nil {
 		t.Fatal(err)
 	}
@@ -307,11 +310,11 @@ func TestLockSyncStopWhileAutoBreakOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	events = []ports.LockEvent{{Time: at(start, 5*time.Minute), Locked: true}}
-	*now = at(start, 10*time.Minute)
+	*now = at(start, 25*time.Minute)
 	if _, err := svc.Status(); err != nil { // erzeugt offenen Auto-Break
 		t.Fatal(err)
 	}
-	*now = at(start, 12*time.Minute)
+	*now = at(start, 27*time.Minute)
 	if _, err := svc.Stop(); err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +324,7 @@ func TestLockSyncStopWhileAutoBreakOpen(t *testing.T) {
 			t.Errorf("nach Stop nichts offen erwartet: %+v", s)
 		}
 	}
-	if last := segs[len(segs)-1]; last.Kind != domain.KindBreak || !last.End.Equal(at(start, 12*time.Minute)) {
+	if last := segs[len(segs)-1]; last.Kind != domain.KindBreak || !last.End.Equal(at(start, 27*time.Minute)) {
 		t.Errorf("Auto-Break muss bei Stop enden: %+v", last)
 	}
 }
@@ -336,9 +339,9 @@ func TestLockSyncLockAtStartSecond(t *testing.T) {
 	}
 	events = []ports.LockEvent{
 		{Time: start, Locked: true},
-		{Time: at(start, 2*time.Minute), Locked: false},
+		{Time: at(start, 20*time.Minute), Locked: false},
 	}
-	*now = at(start, 10*time.Minute)
+	*now = at(start, 30*time.Minute)
 	if _, err := svc.Status(); err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +349,7 @@ func TestLockSyncLockAtStartSecond(t *testing.T) {
 	if len(segs) != 2 {
 		t.Fatalf("work-Stub muss gelöscht sein: %+v", segs)
 	}
-	if segs[0].Kind != domain.KindBreak || !segs[0].Start.Equal(start) || !segs[0].End.Equal(at(start, 2*time.Minute)) {
+	if segs[0].Kind != domain.KindBreak || !segs[0].Start.Equal(start) || !segs[0].End.Equal(at(start, 20*time.Minute)) {
 		t.Errorf("Break: %+v", segs[0])
 	}
 }

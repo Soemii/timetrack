@@ -10,11 +10,13 @@ import (
 
 // ponytail: bewusst hartkodiert — Config-Knöpfe erst wenn jemand sie braucht.
 const (
-	autoBreakNote    = "auto:screenlock" // markiert Auto-Pausen, unterscheidet sie von manuellen
-	lockMinDuration  = 60 * time.Second  // kürzere Sperren ignorieren
-	lockSyncThrottle = 30 * time.Second  // schützt das 2s-Polling der Web-UI
-	lockQuerySlack   = 10 * time.Second  // Log-Flush-Verzögerung der Quelle
-	lockSyncKey      = "lock_sync_ts"    // Watermark, Unix-Sekunden im Config-Store
+	autoBreakNote = "auto:screenlock" // markiert Auto-Pausen, unterscheidet sie von manuellen
+	// Kürzere Sperren ignorieren: unter ArbZG-§4-Grenze zählt die Pause im
+	// Report ohnehin als Arbeitszeit — der Eintrag wäre nur Rauschen.
+	lockMinDuration  = domain.MinLegalBreak
+	lockSyncThrottle = 30 * time.Second // schützt das 2s-Polling der Web-UI
+	lockQuerySlack   = 10 * time.Second // Log-Flush-Verzögerung der Quelle
+	lockSyncKey      = "lock_sync_ts"   // Watermark, Unix-Sekunden im Config-Store
 )
 
 // SyncLocks erzwingt einen Abgleich — für den In-Prozess-Watcher (Windows serve).
