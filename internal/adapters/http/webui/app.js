@@ -265,14 +265,41 @@ $("#view-zeit").onclick = () => { S.view = "zeit"; renderEntries(); };
 $("#view-liste").onclick = () => { S.view = "liste"; renderEntries(); };
 $("#week-prev").onclick = () => { S.monday = addDays(S.monday, -7); S.draft = null; S.selBlock = null; S.sel.clear(); loadEntries(); };
 $("#week-next").onclick = () => { S.monday = addDays(S.monday, 7); S.draft = null; S.selBlock = null; S.sel.clear(); loadEntries(); };
+const zoom = (d) => () => {
+  PXH = clampPxh(PXH * (d > 0 ? 1.5 : 1 / 1.5));
+  localStorage.setItem("tt.pxh", Math.round(PXH));
+  renderTimeline();
+};
+$("#zoom-in").onclick = zoom(1);
+$("#zoom-out").onclick = zoom(-1);
 
 const afterMutation = async () => { await loadEntries(); refreshStatus(); loadWeekChart(); };
 
 // --- Zeitstrahl ---
 // Dynamischer Stundenbereich: mindestens 7–19, erweitert sich um die Einträge
 // der Woche (plus 1 h Zieh-Reserve am Rand). H0/H1 setzt renderTimeline().
-const PXH = 44;
+const clampPxh = (v) => Math.min(150, Math.max(20, v || 44));
+let PXH = clampPxh(+localStorage.getItem("tt.pxh"));
 let H0 = 7, H1 = 19, TL_H = (H1 - H0) * PXH;
+
+// Pinch (wheel+ctrlKey) und Ctrl/Cmd+Rad zoomen; die Zeit unterm Cursor bleibt fix.
+// scrollTop ist in renderedPXH-Pixeln gemessen, daher Ratio PXH/renderedPXH.
+let renderedPXH = PXH, wheelScroll = 0, wheelRaf = 0;
+const tlScroll = $("#tl-scroll");
+tlScroll.addEventListener("wheel", (e) => {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+  const dy = e.deltaMode ? e.deltaY * 20 : e.deltaY; // Firefox line-mode
+  PXH = clampPxh(PXH * Math.exp(-dy * 0.01));
+  const y = e.clientY - tlScroll.getBoundingClientRect().top;
+  wheelScroll = (tlScroll.scrollTop + y) * (PXH / renderedPXH) - y;
+  if (!wheelRaf) wheelRaf = requestAnimationFrame(() => {
+    wheelRaf = 0;
+    localStorage.setItem("tt.pxh", Math.round(PXH));
+    renderTimeline();
+    tlScroll.scrollTop = wheelScroll;
+  });
+});
 
 // Ein Entry ergibt pro berührtem Kalendertag ein Segment; über Mitternacht
 // laufende Einträge erscheinen so an Tag A (bis 24:00) und Tag B (ab 0:00).
@@ -316,6 +343,7 @@ function renderTimeline() {
 
   const headsEl = $("#tl-heads");
   const scrollEl = $("#tl-scroll");
+  scrollEl.style.setProperty("--pxh", PXH + "px");
   const prevScroll = scrollEl.dataset.init ? scrollEl.scrollTop : 0;
   headsEl.innerHTML = "";
   scrollEl.innerHTML = "";
@@ -349,6 +377,7 @@ function renderTimeline() {
     scrollEl.appendChild(col);
   }
   scrollEl.dataset.init = "1";
+  renderedPXH = PXH;
   scrollEl.scrollTop = prevScroll;
   renderPanel();
   renderWeekSummary();
@@ -361,7 +390,9 @@ function blockEl(b, col, blocks) {
   el.className = "tl-block" + (b.kind === "break" ? " pc-break" : "") +
     (isSel ? " sel" : "") + (live ? " live" : "") + (b.draft ? " draft" : "");
   el.style.top = (b.f - H0) * PXH + "px";
-  el.style.height = Math.max((b.t - b.f) * PXH - 3, 12) + "px";
+  // Mindesthöhe 12px, aber nie in den Nachfolger hineinragen (absolutes Minimum 4px)
+  const nextF = Math.min(H1, ...blocks.filter((x) => x.day === b.day && x.id !== b.id && !x.draft && x.f >= b.t - 0.001).map((x) => x.f));
+  el.style.height = Math.max((b.t - b.f) * PXH - 3, Math.min(12, (nextF - b.f) * PXH - 3), 4) + "px";
   let dots = "";
   if (b.kind !== "break") {
     const cols = (b.p ? b.p.split("+") : [""]).map(colorOf);
@@ -376,13 +407,16 @@ function blockEl(b, col, blocks) {
       el.style.backgroundColor = tint(cols[0], 12);
     }
   }
-  const time = b.entry
+  // Während Resize/Move die Live-Preview-Zeiten anzeigen statt der gespeicherten
+  const preview = S.resizing && S.resizing.id === b.id && S.resizing.day === b.day;
+  const time = b.entry && !preview
     ? `${b.contTop ? "↥ " : ""}${clock(b.entry.start)}–${live ? "…läuft" : clock(b.entry.end)}${b.contBottom ? " ↧" : ""}`
     : `${fmtH(b.f)}–${fmtH(b.t)}`;
   el.innerHTML = `<div class="tl-bl">${dots}${esc(b.kind === "break" ? "Pause" : b.p || "—")}</div>` +
     `<div class="tl-bt">${time}</div>`;
   el.onclick = (e) => { e.stopPropagation(); S.selBlock = b.id; renderTimeline(); };
   if (!b.draft) {
+    if (!b.open && !b.contTop && !b.contBottom) el.onpointerdown = startMove(b, col, blocks);
     if (!b.contTop) {
       const ht = document.createElement("div");
       ht.className = "tl-h tl-ht";
@@ -466,6 +500,48 @@ function startResize(b, edge, col, blocks) {
       const patch = edge === "t"
         ? { start: new Date(`${dateIso}T${fmtH(r.f)}:00`).toISOString() }
         : { end: new Date(`${dateIso}T${fmtH(r.t)}:00`).toISOString() };
+      try { await api("PUT", "/api/entries/" + b.id, patch); } catch (err) { toast(err.message); }
+      afterMutation();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    renderTimeline();
+  };
+}
+
+// Block-Körper ziehen: in der Zeit verschieben (Dauer bleibt), bei Loslassen PUT auf start+end
+function startMove(b, col, blocks) {
+  return (e) => {
+    if (e.button !== 0 || e.target.classList.contains("tl-h")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = col.getBoundingClientRect();
+    const scale = rect.height / TL_H || 1;
+    const y0 = e.clientY, f0 = b.f, t0 = b.t;
+    const others = blocks.filter((x) => x.day === b.day && x.id !== b.id && !x.draft);
+    const prevEnd = Math.max(H0, ...others.filter((x) => x.t <= f0 + 0.001).map((x) => x.t));
+    const nextStart = Math.min(H1, ...others.filter((x) => x.f >= t0 - 0.001).map((x) => x.f));
+    let moved = false;
+    S.selBlock = b.id;
+    const move = (ev) => {
+      let dh = Math.round((ev.clientY - y0) / (PXH * scale) * 12) / 12;
+      if (!dh && !moved) return; // 5-Min-Raster ist zugleich Klick-Schwelle
+      moved = true;
+      dh = Math.min(Math.max(dh, prevEnd - f0), nextStart - t0);
+      S.resizing = { id: b.id, day: b.day, f: f0 + dh, t: t0 + dh };
+      renderTimeline();
+    };
+    const up = async () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const r = S.resizing;
+      S.resizing = null;
+      if (!r || !moved) { renderTimeline(); return; } // reiner Klick → nur Select
+      const dateIso = isoDate(addDays(S.monday, b.day));
+      const patch = {
+        start: new Date(`${dateIso}T${fmtH(r.f)}:00`).toISOString(),
+        end: new Date(`${dateIso}T${fmtH(r.t)}:00`).toISOString(),
+      };
       try { await api("PUT", "/api/entries/" + b.id, patch); } catch (err) { toast(err.message); }
       afterMutation();
     };

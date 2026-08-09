@@ -121,7 +121,7 @@ input[type=checkbox] { accent-color: var(--accent); }
 .tl-hour { position: absolute; right: 8px; font: 400 10.5px var(--mono); color: var(--hour-label); }
 .tl-dayhead { text-align: center; font: 600 12px var(--sans); color: var(--muted); padding-bottom: 8px; }
 .tl-dayhead.today { color: var(--accent); }
-.tl-col { position: relative; background: repeating-linear-gradient(to bottom, var(--card) 0, var(--card) 43px, var(--grid) 43px, var(--grid) 44px); border: 1px solid var(--border); border-radius: 8px; cursor: crosshair; touch-action: none; }
+.tl-col { position: relative; background: repeating-linear-gradient(to bottom, var(--card) 0, var(--card) calc(var(--pxh, 44px) - 1px), var(--grid) calc(var(--pxh, 44px) - 1px), var(--grid) var(--pxh, 44px)); border: 1px solid var(--border); border-radius: 8px; cursor: crosshair; touch-action: none; }
 .tl-block { position: absolute; left: 4px; right: 4px; border: 1.5px solid; border-radius: 7px; padding: 5px 8px; cursor: pointer; overflow: hidden; touch-action: none; }
 .tl-block.sel { border-color: currentColor; box-shadow: 0 0 0 3px rgba(0, 0, 0, .05), 0 4px 10px rgba(0, 0, 0, .12); z-index: 2; }
 .tl-block.live { background-image: repeating-linear-gradient(45deg, transparent 0 8px, rgba(255, 255, 255, .35) 8px 16px); }
