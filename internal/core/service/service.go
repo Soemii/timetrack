@@ -30,6 +30,11 @@ type Service struct {
 	// lastOutlookFetch drosselt den ICS-Abruf in-memory — nicht im Config-
 	// Store, weil die Watermark durch vertagte Termine zurückhängen kann.
 	lastOutlookFetch time.Time
+	// Issues liefert die dem Nutzer zugewiesenen, ungelösten JIRA-Tickets.
+	// nil = kein JIRA-Import (Tests).
+	Issues func(baseURL, token string) ([]ports.Issue, error)
+	// lastJiraFetch drosselt den JIRA-Abruf in-memory, wie lastOutlookFetch.
+	lastJiraFetch time.Time
 }
 
 func New(repo ports.Repository, loc *time.Location) *Service {
@@ -295,6 +300,7 @@ func (s *Service) Status() (Status, error) {
 		return st, err
 	}
 	_ = s.syncOutlook(false) // best effort wie Lock-Sync; Fehler landet in outlook_sync_error
+	_ = s.syncJira(false)    // best effort; Fehler landet in jira_sync_error
 	open, err := s.repo.OpenEntry()
 	if err != nil {
 		return st, err
@@ -356,16 +362,36 @@ func (s *Service) validateEntry(e domain.Segment) error {
 	return s.checkOverlap(e)
 }
 
-func (s *Service) AddEntry(kind domain.Kind, project string, start, end time.Time, note string) (int64, error) {
+func (s *Service) AddEntry(kind domain.Kind, project string, start, end time.Time, note string, taskID int64) (int64, error) {
 	pids, err := s.resolveProjects(project)
 	if err != nil {
 		return 0, err
 	}
-	e := domain.Segment{Kind: kind, ProjectIDs: pids, Start: start, End: end, Note: note}
+	e := domain.Segment{Kind: kind, ProjectIDs: pids, Start: start, End: end, Note: note, TaskID: taskID}
+	if err := s.validateEntryTask(e); err != nil {
+		return 0, err
+	}
 	if err := s.validateEntry(e); err != nil {
 		return 0, err
 	}
 	return s.repo.CreateEntry(e)
+}
+
+// validateEntryTask prüft, ob die Aufgabe zu einem der Projekte des Eintrags gehört.
+func (s *Service) validateEntryTask(e domain.Segment) error {
+	if e.TaskID == 0 {
+		return nil
+	}
+	t, err := s.repo.GetTask(e.TaskID)
+	if err != nil {
+		return fmt.Errorf("%w: Aufgabe #%d nicht gefunden", ErrConflict, e.TaskID)
+	}
+	for _, pid := range e.ProjectIDs {
+		if pid == t.ProjectID {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: Aufgabe %q gehört nicht zu den Projekten des Eintrags", ErrConflict, t.Title)
 }
 
 // EntryPatch: nil = Feld unverändert.
@@ -375,6 +401,7 @@ type EntryPatch struct {
 	Start   *time.Time
 	End     *time.Time
 	Note    *string
+	Task    *int64 // 0 = Aufgabe entfernen
 }
 
 func (s *Service) UpdateEntry(id int64, p EntryPatch) error {
@@ -399,6 +426,12 @@ func (s *Service) UpdateEntry(id int64, p EntryPatch) error {
 	}
 	if p.Note != nil {
 		e.Note = *p.Note
+	}
+	if p.Task != nil {
+		e.TaskID = *p.Task
+	}
+	if err := s.validateEntryTask(e); err != nil {
+		return err
 	}
 	check := e
 	if check.Open {
@@ -480,6 +513,86 @@ func (s *Service) SetProjectCompany(projectID, companyID int64) error {
 		return err
 	}
 	return s.repo.SetProjectCompany(projectID, companyID)
+}
+
+// SetProjectJiraKey hinterlegt den JIRA-Projekt-Key ("" = Mapping entfernen).
+func (s *Service) SetProjectJiraKey(projectID int64, key string) error {
+	if _, err := s.repo.GetProject(projectID); err != nil {
+		return err
+	}
+	return s.repo.SetProjectJiraKey(projectID, strings.ToUpper(strings.TrimSpace(key)))
+}
+
+// --- Tasks ---
+
+func (s *Service) Tasks(projectID int64, includeArchived bool) ([]domain.Task, error) {
+	return s.repo.TasksForProject(projectID, includeArchived)
+}
+
+// AllTasks liefert alle Aufgaben projektübergreifend (für Anzeige-Labels).
+func (s *Service) AllTasks() ([]domain.Task, error) {
+	return s.repo.Tasks()
+}
+
+// CreateTask legt eine lokale Aufgabe an.
+func (s *Service) CreateTask(projectID int64, title string) (domain.Task, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return domain.Task{}, fmt.Errorf("%w: Aufgabentitel fehlt", ErrConflict)
+	}
+	if _, err := s.repo.GetProject(projectID); err != nil {
+		return domain.Task{}, err
+	}
+	id, err := s.repo.CreateTask(projectID, title, s.now())
+	if err != nil {
+		return domain.Task{}, err
+	}
+	return domain.Task{ID: id, ProjectID: projectID, Title: title}, nil
+}
+
+// UpdateTask ändert Titel und/oder Archiv-Status; nil lässt das Feld unverändert.
+// JIRA-Aufgaben sind tabu — der nächste Sync würde Änderungen überschreiben.
+func (s *Service) UpdateTask(id int64, title *string, archived *bool) error {
+	t, err := s.repo.GetTask(id)
+	if err != nil {
+		return fmt.Errorf("Aufgabe #%d nicht gefunden", id)
+	}
+	if t.JiraKey != "" {
+		return fmt.Errorf("%w: Aufgabe %s wird von JIRA verwaltet", ErrConflict, t.JiraKey)
+	}
+	if title != nil {
+		nt := strings.TrimSpace(*title)
+		if nt == "" {
+			return fmt.Errorf("%w: Aufgabentitel fehlt", ErrConflict)
+		}
+		if err := s.repo.RenameTask(id, nt); err != nil {
+			return err
+		}
+	}
+	if archived != nil {
+		if err := s.repo.SetTaskArchived(id, *archived); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) DeleteTask(id int64) error {
+	t, err := s.repo.GetTask(id)
+	if err != nil {
+		return fmt.Errorf("Aufgabe #%d nicht gefunden", id)
+	}
+	if t.JiraKey != "" {
+		return fmt.Errorf("%w: Aufgabe %s wird von JIRA verwaltet", ErrConflict, t.JiraKey)
+	}
+	n, err := s.repo.CountEntriesForTask(id)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return fmt.Errorf("%w: Aufgabe wird noch von %d Eintrag/Einträgen verwendet", ErrConflict, n)
+	}
+	return s.repo.DeleteTask(id)
 }
 
 // --- Companies ---

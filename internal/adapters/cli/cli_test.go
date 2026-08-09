@@ -134,3 +134,66 @@ func TestInitOutlook(t *testing.T) {
 		t.Errorf("config ohne URL: %s", out.String())
 	}
 }
+
+func TestInitJira(t *testing.T) {
+	sqlDB, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	berlin, _ := time.LoadLocation("Europe/Berlin")
+	svc := service.New(sqlite.NewRepo(sqlDB), berlin)
+	now := time.Date(2026, 7, 20, 9, 0, 0, 0, berlin)
+	svc.Now = func() time.Time { return now }
+
+	var out bytes.Buffer
+	app := &App{Svc: svc, Loc: berlin, Stdout: &out}
+	initWith := func(answers string) int {
+		out.Reset()
+		app.Stdin = strings.NewReader(answers)
+		return app.Run([]string{"init"})
+	}
+
+	// Init: kein Outlook, JIRA-URL + Token
+	if code := initWith("40\n\n\nBW\n\n\nhttps://jira.example.com\nsecret\n"); code != 0 {
+		t.Fatalf("init: Exit %d: %s", code, out.String())
+	}
+	set, err := svc.JiraSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set.BaseURL != "https://jira.example.com" || !set.TokenSet {
+		t.Fatalf("JIRA-Settings nach Init: %+v", set)
+	}
+
+	// config zeigt die Einstellungen
+	out.Reset()
+	if code := app.Run([]string{"config"}); code != 0 {
+		t.Fatalf("config: Exit %d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "https://jira.example.com") || !strings.Contains(out.String(), "Token: gesetzt") {
+		t.Errorf("config ohne JIRA-Angaben: %s", out.String())
+	}
+
+	// Re-Init mit leeren Eingaben behält URL + Token
+	if code := initWith("40\n\n\nBW\n\n\n\n\n"); code != 0 {
+		t.Fatalf("re-init: Exit %d: %s", code, out.String())
+	}
+	set, _ = svc.JiraSettings()
+	if set.BaseURL != "https://jira.example.com" || !set.TokenSet {
+		t.Fatalf("Re-Init muss Werte behalten: %+v", set)
+	}
+
+	// "-" entfernt URL und Token (Token-Prompt entfällt)
+	if code := initWith("40\n\n\nBW\n\n\n-\n"); code != 0 {
+		t.Fatalf("init mit '-': Exit %d: %s", code, out.String())
+	}
+	set, _ = svc.JiraSettings()
+	if set.BaseURL != "" || set.TokenSet {
+		t.Fatalf("'-' muss URL+Token löschen: %+v", set)
+	}
+	out.Reset()
+	if code := app.Run([]string{"config"}); code != 0 || !strings.Contains(out.String(), "JIRA-Import: aus") {
+		t.Errorf("config ohne JIRA: %s", out.String())
+	}
+}

@@ -40,8 +40,8 @@ func (q *Queries) CloseEntry(ctx context.Context, arg CloseEntryParams) error {
 }
 
 const createEntry = `-- name: CreateEntry :one
-INSERT INTO entries (kind, start_ts, end_ts, note)
-VALUES (?, ?, ?, ?)
+INSERT INTO entries (kind, start_ts, end_ts, note, task_id)
+VALUES (?, ?, ?, ?, ?)
 RETURNING id
 `
 
@@ -50,6 +50,7 @@ type CreateEntryParams struct {
 	StartTs int64
 	EndTs   sql.NullInt64
 	Note    sql.NullString
+	TaskID  sql.NullInt64
 }
 
 func (q *Queries) CreateEntry(ctx context.Context, arg CreateEntryParams) (int64, error) {
@@ -58,6 +59,7 @@ func (q *Queries) CreateEntry(ctx context.Context, arg CreateEntryParams) (int64
 		arg.StartTs,
 		arg.EndTs,
 		arg.Note,
+		arg.TaskID,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -83,7 +85,7 @@ func (q *Queries) DeleteEntryProjects(ctx context.Context, entryID int64) error 
 }
 
 const getEntry = `-- name: GetEntry :one
-SELECT id, kind, start_ts, end_ts, note FROM entries WHERE id = ?
+SELECT id, kind, start_ts, end_ts, note, task_id FROM entries WHERE id = ?
 `
 
 func (q *Queries) GetEntry(ctx context.Context, id int64) (Entry, error) {
@@ -95,12 +97,13 @@ func (q *Queries) GetEntry(ctx context.Context, id int64) (Entry, error) {
 		&i.StartTs,
 		&i.EndTs,
 		&i.Note,
+		&i.TaskID,
 	)
 	return i, err
 }
 
 const getOpenEntry = `-- name: GetOpenEntry :one
-SELECT id, kind, start_ts, end_ts, note FROM entries WHERE end_ts IS NULL LIMIT 1
+SELECT id, kind, start_ts, end_ts, note, task_id FROM entries WHERE end_ts IS NULL LIMIT 1
 `
 
 func (q *Queries) GetOpenEntry(ctx context.Context) (Entry, error) {
@@ -112,12 +115,13 @@ func (q *Queries) GetOpenEntry(ctx context.Context) (Entry, error) {
 		&i.StartTs,
 		&i.EndTs,
 		&i.Note,
+		&i.TaskID,
 	)
 	return i, err
 }
 
 const listEntriesTouching = `-- name: ListEntriesTouching :many
-SELECT id, kind, start_ts, end_ts, note FROM entries
+SELECT id, kind, start_ts, end_ts, note, task_id FROM entries
 WHERE start_ts < ?1 AND COALESCE(end_ts, ?2) > ?3
 ORDER BY start_ts
 `
@@ -143,6 +147,7 @@ func (q *Queries) ListEntriesTouching(ctx context.Context, arg ListEntriesTouchi
 			&i.StartTs,
 			&i.EndTs,
 			&i.Note,
+			&i.TaskID,
 		); err != nil {
 			return nil, err
 		}
@@ -197,7 +202,7 @@ func (q *Queries) ListEntryProjectsFor(ctx context.Context, ids []int64) ([]Entr
 }
 
 const updateEntry = `-- name: UpdateEntry :exec
-UPDATE entries SET kind = ?, start_ts = ?, end_ts = ?, note = ?
+UPDATE entries SET kind = ?, start_ts = ?, end_ts = ?, note = ?, task_id = ?
 WHERE id = ?
 `
 
@@ -206,6 +211,7 @@ type UpdateEntryParams struct {
 	StartTs int64
 	EndTs   sql.NullInt64
 	Note    sql.NullString
+	TaskID  sql.NullInt64
 	ID      int64
 }
 
@@ -215,6 +221,7 @@ func (q *Queries) UpdateEntry(ctx context.Context, arg UpdateEntryParams) error 
 		arg.StartTs,
 		arg.EndTs,
 		arg.Note,
+		arg.TaskID,
 		arg.ID,
 	)
 	return err

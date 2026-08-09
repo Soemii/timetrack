@@ -33,6 +33,7 @@ type Entry struct {
 	StartTs int64
 	EndTs   sql.NullInt64
 	Note    sql.NullString
+	TaskID  sql.NullInt64
 }
 
 type EntryProject struct {
@@ -41,11 +42,21 @@ type EntryProject struct {
 }
 
 type Project struct {
+	ID             int64
+	Name           string
+	Archived       int64
+	CreatedAt      int64
+	Color          sql.NullString
+	Note           sql.NullString
+	CompanyID      sql.NullInt64
+	JiraProjectKey sql.NullString
+}
+
+type Task struct {
 	ID        int64
-	Name      string
+	ProjectID int64
+	JiraKey   sql.NullString
+	Title     string
 	Archived  int64
 	CreatedAt int64
-	Color     sql.NullString
-	Note      sql.NullString
-	CompanyID sql.NullInt64
 }

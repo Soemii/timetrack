@@ -39,10 +39,11 @@ var ctx = context.Background() // ponytail: lokales Tool, keine Request-Kontexte
 
 func toSegment(e db.Entry) domain.Segment {
 	s := domain.Segment{
-		ID:    e.ID,
-		Kind:  domain.Kind(e.Kind),
-		Start: time.Unix(e.StartTs, 0),
-		Note:  e.Note.String,
+		ID:     e.ID,
+		Kind:   domain.Kind(e.Kind),
+		Start:  time.Unix(e.StartTs, 0),
+		Note:   e.Note.String,
+		TaskID: e.TaskID.Int64,
 	}
 	if e.EndTs.Valid {
 		s.End = time.Unix(e.EndTs.Int64, 0)
@@ -115,6 +116,7 @@ func (r *Repo) CreateEntry(s domain.Segment) (int64, error) {
 			StartTs: s.Start.Unix(),
 			EndTs:   nullEnd(s),
 			Note:    nullStr(s.Note),
+			TaskID:  nullInt(s.TaskID),
 		})
 		if err != nil {
 			return err
@@ -155,6 +157,7 @@ func (r *Repo) UpdateEntry(s domain.Segment) error {
 			StartTs: s.Start.Unix(),
 			EndTs:   nullEnd(s),
 			Note:    nullStr(s.Note),
+			TaskID:  nullInt(s.TaskID),
 			ID:      s.ID,
 		}); err != nil {
 			return err
@@ -197,7 +200,7 @@ func (r *Repo) EntriesBetween(from, to, now time.Time) ([]domain.Segment, error)
 // --- Projects ---
 
 func toProject(p db.Project) domain.Project {
-	return domain.Project{ID: p.ID, Name: p.Name, Archived: p.Archived != 0, Color: p.Color.String, Note: p.Note.String, CompanyID: p.CompanyID.Int64}
+	return domain.Project{ID: p.ID, Name: p.Name, Archived: p.Archived != 0, Color: p.Color.String, Note: p.Note.String, CompanyID: p.CompanyID.Int64, JiraKey: p.JiraProjectKey.String}
 }
 
 func (r *Repo) ProjectByName(name string) (*domain.Project, error) {
@@ -258,6 +261,80 @@ func (r *Repo) SetProjectMeta(id int64, color, note string) error {
 
 func (r *Repo) SetProjectCompany(id, companyID int64) error {
 	return r.q.SetProjectCompany(ctx, db.SetProjectCompanyParams{CompanyID: nullInt(companyID), ID: id})
+}
+
+func (r *Repo) SetProjectJiraKey(id int64, key string) error {
+	return r.q.SetProjectJiraKey(ctx, db.SetProjectJiraKeyParams{JiraProjectKey: nullStr(key), ID: id})
+}
+
+// --- Tasks ---
+
+func toTask(t db.Task) domain.Task {
+	return domain.Task{ID: t.ID, ProjectID: t.ProjectID, JiraKey: t.JiraKey.String, Title: t.Title, Archived: t.Archived != 0}
+}
+
+func (r *Repo) TasksForProject(projectID int64, includeArchived bool) ([]domain.Task, error) {
+	inc := int64(0)
+	if includeArchived {
+		inc = 1
+	}
+	rows, err := r.q.ListTasksForProject(ctx, db.ListTasksForProjectParams{ProjectID: projectID, IncludeArchived: inc})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Task, len(rows))
+	for i, t := range rows {
+		out[i] = toTask(t)
+	}
+	return out, nil
+}
+
+func (r *Repo) Tasks() ([]domain.Task, error) {
+	rows, err := r.q.ListTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Task, len(rows))
+	for i, t := range rows {
+		out[i] = toTask(t)
+	}
+	return out, nil
+}
+
+func (r *Repo) GetTask(id int64) (domain.Task, error) {
+	t, err := r.q.GetTask(ctx, id)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	return toTask(t), nil
+}
+
+func (r *Repo) CreateTask(projectID int64, title string, createdAt time.Time) (int64, error) {
+	return r.q.CreateTask(ctx, db.CreateTaskParams{ProjectID: projectID, Title: title, CreatedAt: createdAt.Unix()})
+}
+
+func (r *Repo) UpsertJiraTask(projectID int64, key, title string, createdAt time.Time) (int64, error) {
+	return r.q.UpsertJiraTask(ctx, db.UpsertJiraTaskParams{ProjectID: projectID, JiraKey: nullStr(key), Title: title, CreatedAt: createdAt.Unix()})
+}
+
+func (r *Repo) RenameTask(id int64, title string) error {
+	return r.q.RenameTask(ctx, db.RenameTaskParams{Title: title, ID: id})
+}
+
+func (r *Repo) SetTaskArchived(id int64, archived bool) error {
+	a := int64(0)
+	if archived {
+		a = 1
+	}
+	return r.q.SetTaskArchived(ctx, db.SetTaskArchivedParams{Archived: a, ID: id})
+}
+
+func (r *Repo) DeleteTask(id int64) error {
+	return r.q.DeleteTask(ctx, id)
+}
+
+func (r *Repo) CountEntriesForTask(id int64) (int64, error) {
+	return r.q.CountEntriesForTask(ctx, nullInt(id))
 }
 
 // --- Companies ---

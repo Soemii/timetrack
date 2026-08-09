@@ -23,6 +23,7 @@ type Segment struct {
 	End        time.Time
 	Open       bool
 	Note       string
+	TaskID     int64 // 0 = keine Aufgabe; nur für work-Segmente sinnvoll
 }
 
 func (s Segment) Duration() time.Duration { return s.End.Sub(s.Start) }
@@ -83,7 +84,18 @@ type Project struct {
 	Archived  bool
 	Color     string // leer = keine Farbe zugewiesen
 	Note      string
-	CompanyID int64 // 0 = keinem Unternehmen zugeordnet
+	CompanyID int64  // 0 = keinem Unternehmen zugeordnet
+	JiraKey   string // JIRA-Projekt-Key (z.B. "ABC"); leer = kein Mapping
+}
+
+// Task: Aufgabe eines Projekts — aus JIRA importiert (JiraKey gesetzt)
+// oder lokal angelegt.
+type Task struct {
+	ID        int64
+	ProjectID int64
+	JiraKey   string // leer = lokale Aufgabe
+	Title     string
+	Archived  bool
 }
 
 type Company struct {

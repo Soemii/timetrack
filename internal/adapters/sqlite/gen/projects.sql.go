@@ -27,7 +27,7 @@ func (q *Queries) CreateProject(ctx context.Context, arg CreateProjectParams) (i
 }
 
 const getProject = `-- name: GetProject :one
-SELECT id, name, archived, created_at, color, note, company_id FROM projects WHERE id = ?
+SELECT id, name, archived, created_at, color, note, company_id, jira_project_key FROM projects WHERE id = ?
 `
 
 func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
@@ -41,12 +41,13 @@ func (q *Queries) GetProject(ctx context.Context, id int64) (Project, error) {
 		&i.Color,
 		&i.Note,
 		&i.CompanyID,
+		&i.JiraProjectKey,
 	)
 	return i, err
 }
 
 const getProjectByName = `-- name: GetProjectByName :one
-SELECT id, name, archived, created_at, color, note, company_id FROM projects WHERE name = ? COLLATE NOCASE
+SELECT id, name, archived, created_at, color, note, company_id, jira_project_key FROM projects WHERE name = ? COLLATE NOCASE
 `
 
 func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, error) {
@@ -60,12 +61,13 @@ func (q *Queries) GetProjectByName(ctx context.Context, name string) (Project, e
 		&i.Color,
 		&i.Note,
 		&i.CompanyID,
+		&i.JiraProjectKey,
 	)
 	return i, err
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT id, name, archived, created_at, color, note, company_id FROM projects WHERE archived = 0 OR ?1 ORDER BY name
+SELECT id, name, archived, created_at, color, note, company_id, jira_project_key FROM projects WHERE archived = 0 OR ?1 ORDER BY name
 `
 
 func (q *Queries) ListProjects(ctx context.Context, includeArchived interface{}) ([]Project, error) {
@@ -85,6 +87,7 @@ func (q *Queries) ListProjects(ctx context.Context, includeArchived interface{})
 			&i.Color,
 			&i.Note,
 			&i.CompanyID,
+			&i.JiraProjectKey,
 		); err != nil {
 			return nil, err
 		}
@@ -138,6 +141,20 @@ type SetProjectCompanyParams struct {
 
 func (q *Queries) SetProjectCompany(ctx context.Context, arg SetProjectCompanyParams) error {
 	_, err := q.db.ExecContext(ctx, setProjectCompany, arg.CompanyID, arg.ID)
+	return err
+}
+
+const setProjectJiraKey = `-- name: SetProjectJiraKey :exec
+UPDATE projects SET jira_project_key = ? WHERE id = ?
+`
+
+type SetProjectJiraKeyParams struct {
+	JiraProjectKey sql.NullString
+	ID             int64
+}
+
+func (q *Queries) SetProjectJiraKey(ctx context.Context, arg SetProjectJiraKeyParams) error {
+	_, err := q.db.ExecContext(ctx, setProjectJiraKey, arg.JiraProjectKey, arg.ID)
 	return err
 }
 

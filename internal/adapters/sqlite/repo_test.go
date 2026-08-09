@@ -243,3 +243,85 @@ func TestProjectsAbsencesConfig(t *testing.T) {
 		t.Errorf("AllConfig: %v", all)
 	}
 }
+
+// TestTaskRoundtrip: Task-CRUD, Upsert-Idempotenz (pinnt ON CONFLICT gegen den
+// Partial-Index unter modernc/sqlite) und FK-Schutz für referenzierte Aufgaben.
+func TestTaskRoundtrip(t *testing.T) {
+	r := testRepo(t)
+	now := time.Unix(1000, 0)
+	pid, err := r.CreateProject("acme", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Lokale Aufgabe + JIRA-Aufgabe
+	localID, err := r.CreateTask(pid, "Doku", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jid, err := r.UpsertJiraTask(pid, "ABC-1", "alt", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Upsert mit gleichem Key: gleiche Zeile, neuer Titel, Archiv-Reset
+	if err := r.SetTaskArchived(jid, true); err != nil {
+		t.Fatal(err)
+	}
+	jid2, err := r.UpsertJiraTask(pid, "ABC-1", "neu", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jid2 != jid {
+		t.Fatalf("Upsert muss dieselbe Zeile treffen: %d != %d", jid2, jid)
+	}
+	tk, err := r.GetTask(jid)
+	if err != nil || tk.Title != "neu" || tk.Archived || tk.JiraKey != "ABC-1" {
+		t.Fatalf("nach Upsert: %+v, %v", tk, err)
+	}
+	// Zweite lokale Aufgabe: NULL-Keys kollidieren nicht
+	if _, err := r.CreateTask(pid, "Zweite", now); err != nil {
+		t.Fatalf("zwei lokale Aufgaben müssen möglich sein: %v", err)
+	}
+	tasks, err := r.TasksForProject(pid, true)
+	if err != nil || len(tasks) != 3 {
+		t.Fatalf("TasksForProject: %+v, %v", tasks, err)
+	}
+
+	// Entry mit TaskID: Roundtrip + FK blockt Löschen
+	eid, err := r.CreateEntry(domain.Segment{Kind: domain.KindWork, Start: now, End: now.Add(time.Hour), TaskID: localID, ProjectIDs: []int64{pid}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := r.GetEntry(eid)
+	if err != nil || e.TaskID != localID {
+		t.Fatalf("Entry-TaskID: %+v, %v", e, err)
+	}
+	if err := r.DeleteTask(localID); err == nil {
+		t.Fatal("FK muss Löschen einer referenzierten Aufgabe blocken")
+	}
+	e.TaskID = 0
+	if err := r.UpdateEntry(e); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ = r.GetEntry(eid); e.TaskID != 0 {
+		t.Fatalf("TaskID muss entfernt sein: %+v", e)
+	}
+	if err := r.DeleteTask(localID); err != nil {
+		t.Fatalf("ohne Referenz muss Löschen gehen: %v", err)
+	}
+
+	// Projekt-JIRA-Key
+	if err := r.SetProjectJiraKey(pid, "ABC"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := r.GetProject(pid)
+	if p.JiraKey != "ABC" {
+		t.Fatalf("JiraKey: %+v", p)
+	}
+	if err := r.SetProjectJiraKey(pid, ""); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = r.GetProject(pid); p.JiraKey != "" {
+		t.Fatalf("JiraKey muss entfernt sein: %+v", p)
+	}
+}

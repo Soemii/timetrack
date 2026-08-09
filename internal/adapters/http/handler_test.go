@@ -351,3 +351,84 @@ func TestCompaniesCRUD(t *testing.T) {
 	}
 	_ = resp
 }
+
+func TestTasksAPI(t *testing.T) {
+	srv, _ := testServer(t)
+
+	resp, body := call(t, srv, "POST", "/api/projects", map[string]string{"name": "acme"})
+	if resp.StatusCode != 201 {
+		t.Fatalf("Projekt: %d %s", resp.StatusCode, body)
+	}
+	var proj struct{ Id int64 }
+	_ = json.Unmarshal(body, &proj)
+
+	// JIRA-Key setzen (kleingeschrieben → uppercased)
+	resp, body = call(t, srv, "PUT", fmt.Sprintf("/api/projects/%d", proj.Id), map[string]string{"jiraKey": "abc"})
+	if resp.StatusCode != 204 {
+		t.Fatalf("jiraKey: %d %s", resp.StatusCode, body)
+	}
+	_, body = call(t, srv, "GET", "/api/projects", nil)
+	var projects []struct{ JiraKey string }
+	_ = json.Unmarshal(body, &projects)
+	if len(projects) != 1 || projects[0].JiraKey != "ABC" {
+		t.Fatalf("Projekte: %s", body)
+	}
+
+	// Aufgabe anlegen, listen, umbenennen, löschen
+	resp, body = call(t, srv, "POST", fmt.Sprintf("/api/projects/%d/tasks", proj.Id), map[string]string{"title": "Doku"})
+	if resp.StatusCode != 201 {
+		t.Fatalf("Task anlegen: %d %s", resp.StatusCode, body)
+	}
+	var task struct {
+		Id    int64
+		Title string
+	}
+	_ = json.Unmarshal(body, &task)
+	if task.Title != "Doku" {
+		t.Fatalf("Task: %s", body)
+	}
+	resp, body = call(t, srv, "PUT", fmt.Sprintf("/api/tasks/%d", task.Id), map[string]string{"title": "Doku v2"})
+	if resp.StatusCode != 204 {
+		t.Fatalf("Task umbenennen: %d %s", resp.StatusCode, body)
+	}
+	_, body = call(t, srv, "GET", fmt.Sprintf("/api/projects/%d/tasks", proj.Id), nil)
+	var tasks []struct{ Title string }
+	_ = json.Unmarshal(body, &tasks)
+	if len(tasks) != 1 || tasks[0].Title != "Doku v2" {
+		t.Fatalf("Tasks: %s", body)
+	}
+
+	// Eintrag mit Aufgabe: taskId + Anzeige-Label in der Liste
+	resp, body = call(t, srv, "POST", "/api/entries", map[string]any{
+		"kind": "work", "projects": []string{"acme"}, "taskId": task.Id,
+		"start": "2026-07-20T09:00:00+02:00", "end": "2026-07-20T10:00:00+02:00",
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("Eintrag: %d %s", resp.StatusCode, body)
+	}
+	var entry struct{ Id int64 }
+	_ = json.Unmarshal(body, &entry)
+	_, body = call(t, srv, "GET", "/api/entries?from=2026-07-20&to=2026-07-26", nil)
+	var entries []struct {
+		TaskId int64
+		Task   string
+	}
+	_ = json.Unmarshal(body, &entries)
+	if len(entries) != 1 || entries[0].TaskId != task.Id || entries[0].Task != "Doku v2" {
+		t.Fatalf("Einträge: %s", body)
+	}
+
+	// Referenzierte Aufgabe löschen → 409; Aufgabe entfernen → löschbar
+	resp, body = call(t, srv, "DELETE", fmt.Sprintf("/api/tasks/%d", task.Id), nil)
+	if resp.StatusCode != 409 {
+		t.Fatalf("Löschen referenzierter Aufgabe: %d %s", resp.StatusCode, body)
+	}
+	resp, body = call(t, srv, "PUT", fmt.Sprintf("/api/entries/%d", entry.Id), map[string]any{"taskId": 0})
+	if resp.StatusCode != 204 {
+		t.Fatalf("Aufgabe entfernen: %d %s", resp.StatusCode, body)
+	}
+	resp, body = call(t, srv, "DELETE", fmt.Sprintf("/api/tasks/%d", task.Id), nil)
+	if resp.StatusCode != 204 {
+		t.Fatalf("Task löschen: %d %s", resp.StatusCode, body)
+	}
+}

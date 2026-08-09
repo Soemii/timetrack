@@ -18,6 +18,13 @@ type Meeting struct {
 	Subject    string
 }
 
+// Issue: dem Nutzer zugewiesenes, ungelöstes JIRA-Ticket.
+type Issue struct {
+	Key        string // z.B. "ABC-123"
+	ProjectKey string // z.B. "ABC"
+	Summary    string
+}
+
 // Repository ist der einzige Persistenz-Port.
 // ponytail: ein Interface statt eines pro Aggregat — aufteilen falls es wächst.
 type Repository interface {
@@ -39,7 +46,19 @@ type Repository interface {
 	RenameProject(id int64, name string) error
 	SetProjectArchived(id int64, archived bool) error
 	SetProjectMeta(id int64, color, note string) error
-	SetProjectCompany(id, companyID int64) error // companyID 0 = Zuordnung entfernen
+	SetProjectCompany(id, companyID int64) error  // companyID 0 = Zuordnung entfernen
+	SetProjectJiraKey(id int64, key string) error // "" = Mapping entfernen
+
+	// Tasks
+	TasksForProject(projectID int64, includeArchived bool) ([]domain.Task, error)
+	Tasks() ([]domain.Task, error)
+	GetTask(id int64) (domain.Task, error)
+	CreateTask(projectID int64, title string, createdAt time.Time) (int64, error)
+	UpsertJiraTask(projectID int64, key, title string, createdAt time.Time) (int64, error)
+	RenameTask(id int64, title string) error
+	SetTaskArchived(id int64, archived bool) error
+	DeleteTask(id int64) error
+	CountEntriesForTask(id int64) (int64, error)
 
 	// Companies
 	Companies() ([]domain.Company, error)

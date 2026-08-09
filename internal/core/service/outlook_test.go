@@ -54,7 +54,7 @@ func TestOutlookCarveMiddle(t *testing.T) {
 	var calls int
 	svc, now := outlookService(t, &meetings, &calls)
 	start := *now
-	if _, err := svc.AddEntry(domain.KindWork, "acme", at(start, -4*time.Hour), at(start, -time.Hour), "Tag"); err != nil {
+	if _, err := svc.AddEntry(domain.KindWork, "acme", at(start, -4*time.Hour), at(start, -time.Hour), "Tag", 0); err != nil {
 		t.Fatal(err)
 	}
 	meetings = []ports.Meeting{meeting(at(start, -3*time.Hour), time.Hour, "Standup")}
@@ -89,7 +89,7 @@ func TestOutlookCarveEdgesAndFullCover(t *testing.T) {
 	// Drei Segmente: 08-09 (Anfang ragt), 09:00-09:30 (komplett überdeckt), 09:30-10:30 (Ende ragt)
 	base := at(start, -8*time.Hour) // 01:00 — egal, Hauptsache heute
 	for _, span := range [][2]time.Duration{{0, time.Hour}, {time.Hour, 90 * time.Minute}, {90 * time.Minute, 150 * time.Minute}} {
-		if _, err := svc.AddEntry(domain.KindWork, "", base.Add(span[0]), base.Add(span[1]), "w"); err != nil {
+		if _, err := svc.AddEntry(domain.KindWork, "", base.Add(span[0]), base.Add(span[1]), "w", 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -118,7 +118,7 @@ func TestOutlookCarvesBreaks(t *testing.T) {
 	var calls int
 	svc, now := outlookService(t, &meetings, &calls)
 	start := *now
-	if _, err := svc.AddEntry(domain.KindBreak, "", at(start, -3*time.Hour), at(start, -2*time.Hour), autoBreakNote); err != nil {
+	if _, err := svc.AddEntry(domain.KindBreak, "", at(start, -3*time.Hour), at(start, -2*time.Hour), autoBreakNote, 0); err != nil {
 		t.Fatal(err)
 	}
 	meetings = []ports.Meeting{meeting(at(start, -3*time.Hour), time.Hour, "Meeting im Raum")}

@@ -181,8 +181,70 @@ paths:
                   type: integer
                   format: int64
                   description: 0 entfernt die Zuordnung
+                jiraKey:
+                  type: string
+                  description: JIRA-Projekt-Key; "" entfernt das Mapping
       responses:
         "204": { description: Geändert }
+        default: { $ref: "#/components/responses/Error" }
+  /api/projects/{id}/tasks:
+    get:
+      operationId: listProjectTasks
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: includeArchived, in: query, required: false, schema: { type: boolean } }
+      responses:
+        "200":
+          description: Aufgaben des Projekts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Task" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createProjectTask
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+      responses:
+        "201":
+          description: Angelegt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        default: { $ref: "#/components/responses/Error" }
+  /api/tasks/{id}:
+    put:
+      operationId: updateTask
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                archived: { type: boolean }
+      responses:
+        "204": { description: Geändert }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteTask
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "204": { description: Gelöscht }
         default: { $ref: "#/components/responses/Error" }
   /api/companies:
     get:
@@ -372,6 +434,8 @@ components:
         end: { type: string, format: date-time }
         open: { type: boolean }
         note: { type: string }
+        taskId: { type: integer, format: int64 }
+        task: { type: string, description: "Anzeige-Label der Aufgabe (inkl. JIRA-Key)" }
     EntryInput:
       type: object
       required: [kind, start, end]
@@ -383,6 +447,7 @@ components:
         start: { type: string, format: date-time }
         end: { type: string, format: date-time }
         note: { type: string }
+        taskId: { type: integer, format: int64 }
     EntryPatch:
       type: object
       properties:
@@ -393,6 +458,10 @@ components:
         start: { type: string, format: date-time }
         end: { type: string, format: date-time }
         note: { type: string }
+        taskId:
+          type: integer
+          format: int64
+          description: 0 entfernt die Aufgabe
     Project:
       type: object
       required: [id, name, archived]
@@ -403,6 +472,16 @@ components:
         color: { type: string }
         note: { type: string }
         companyId: { type: integer, format: int64 }
+        jiraKey: { type: string, description: "JIRA-Projekt-Key, z.B. ABC" }
+    Task:
+      type: object
+      required: [id, projectId, title, archived]
+      properties:
+        id: { type: integer, format: int64 }
+        projectId: { type: integer, format: int64 }
+        title: { type: string }
+        jiraKey: { type: string, description: "z.B. ABC-123; fehlt bei lokalen Aufgaben" }
+        archived: { type: boolean }
     Company:
       type: object
       required: [id, name]

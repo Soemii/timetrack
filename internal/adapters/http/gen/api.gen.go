@@ -186,6 +186,10 @@ type Entry struct {
 	// Projects Zeit wird gleichmäßig auf alle Projekte aufgeteilt
 	Projects []string  `json:"projects"`
 	Start    time.Time `json:"start"`
+
+	// Task Anzeige-Label der Aufgabe (inkl. JIRA-Key)
+	Task   *string `json:"task,omitempty"`
+	TaskId *int64  `json:"taskId,omitempty"`
 }
 
 // EntryKind defines model for Entry.Kind.
@@ -198,6 +202,7 @@ type EntryInput struct {
 	Note     *string        `json:"note,omitempty"`
 	Projects *[]string      `json:"projects,omitempty"`
 	Start    time.Time      `json:"start"`
+	TaskId   *int64         `json:"taskId,omitempty"`
 }
 
 // EntryInputKind defines model for EntryInput.Kind.
@@ -210,6 +215,9 @@ type EntryPatch struct {
 	Note     *string         `json:"note,omitempty"`
 	Projects *[]string       `json:"projects,omitempty"`
 	Start    *time.Time      `json:"start,omitempty"`
+
+	// TaskId 0 entfernt die Aufgabe
+	TaskId *int64 `json:"taskId,omitempty"`
 }
 
 // EntryPatchKind defines model for EntryPatch.Kind.
@@ -221,8 +229,11 @@ type Project struct {
 	Color     *string `json:"color,omitempty"`
 	CompanyId *int64  `json:"companyId,omitempty"`
 	Id        int64   `json:"id"`
-	Name      string  `json:"name"`
-	Note      *string `json:"note,omitempty"`
+
+	// JiraKey JIRA-Projekt-Key, z.B. ABC
+	JiraKey *string `json:"jiraKey,omitempty"`
+	Name    string  `json:"name"`
+	Note    *string `json:"note,omitempty"`
 }
 
 // ProjectShare defines model for ProjectShare.
@@ -258,6 +269,17 @@ type Status struct {
 
 // StatusState defines model for Status.State.
 type StatusState string
+
+// Task defines model for Task.
+type Task struct {
+	Archived bool  `json:"archived"`
+	Id       int64 `json:"id"`
+
+	// JiraKey z.B. ABC-123; fehlt bei lokalen Aufgaben
+	JiraKey   *string `json:"jiraKey,omitempty"`
+	ProjectId int64   `json:"projectId"`
+	Title     string  `json:"title"`
+}
 
 // Error defines model for Error.
 type Error struct {
@@ -315,15 +337,34 @@ type UpdateProjectJSONBody struct {
 	Color    *string `json:"color,omitempty"`
 
 	// CompanyId 0 entfernt die Zuordnung
-	CompanyId *int64  `json:"companyId,omitempty"`
-	Name      *string `json:"name,omitempty"`
-	Note      *string `json:"note,omitempty"`
+	CompanyId *int64 `json:"companyId,omitempty"`
+
+	// JiraKey JIRA-Projekt-Key; "" entfernt das Mapping
+	JiraKey *string `json:"jiraKey,omitempty"`
+	Name    *string `json:"name,omitempty"`
+	Note    *string `json:"note,omitempty"`
+}
+
+// ListProjectTasksParams defines parameters for ListProjectTasks.
+type ListProjectTasksParams struct {
+	IncludeArchived *bool `form:"includeArchived,omitempty" json:"includeArchived,omitempty"`
+}
+
+// CreateProjectTaskJSONBody defines parameters for CreateProjectTask.
+type CreateProjectTaskJSONBody struct {
+	Title string `json:"title"`
 }
 
 // GetReportParams defines parameters for GetReport.
 type GetReportParams struct {
 	From openapi_types.Date `form:"from" json:"from"`
 	To   openapi_types.Date `form:"to" json:"to"`
+}
+
+// UpdateTaskJSONBody defines parameters for UpdateTask.
+type UpdateTaskJSONBody struct {
+	Archived *bool   `json:"archived,omitempty"`
+	Title    *string `json:"title,omitempty"`
 }
 
 // TrackingStartJSONBody defines parameters for TrackingStart.
@@ -356,6 +397,12 @@ type CreateProjectJSONRequestBody CreateProjectJSONBody
 
 // UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
 type UpdateProjectJSONRequestBody UpdateProjectJSONBody
+
+// CreateProjectTaskJSONRequestBody defines body for CreateProjectTask for application/json ContentType.
+type CreateProjectTaskJSONRequestBody CreateProjectTaskJSONBody
+
+// UpdateTaskJSONRequestBody defines body for UpdateTask for application/json ContentType.
+type UpdateTaskJSONRequestBody UpdateTaskJSONBody
 
 // TrackingStartJSONRequestBody defines body for TrackingStart for application/json ContentType.
 type TrackingStartJSONRequestBody TrackingStartJSONBody
@@ -414,11 +461,23 @@ type ServerInterface interface {
 	// (PUT /api/projects/{id})
 	UpdateProject(w http.ResponseWriter, r *http.Request, id int64)
 
+	// (GET /api/projects/{id}/tasks)
+	ListProjectTasks(w http.ResponseWriter, r *http.Request, id int64, params ListProjectTasksParams)
+
+	// (POST /api/projects/{id}/tasks)
+	CreateProjectTask(w http.ResponseWriter, r *http.Request, id int64)
+
 	// (GET /api/report)
 	GetReport(w http.ResponseWriter, r *http.Request, params GetReportParams)
 
 	// (GET /api/status)
 	GetStatus(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /api/tasks/{id})
+	DeleteTask(w http.ResponseWriter, r *http.Request, id int64)
+
+	// (PUT /api/tasks/{id})
+	UpdateTask(w http.ResponseWriter, r *http.Request, id int64)
 
 	// (POST /api/tracking/pause)
 	TrackingPause(w http.ResponseWriter, r *http.Request)
@@ -812,6 +871,67 @@ func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListProjectTasks operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectTasks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListProjectTasksParams
+
+	// ------------- Optional query parameter "includeArchived" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "includeArchived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "includeArchived", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjectTasks(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateProjectTask operation middleware
+func (siw *ServerInterfaceWrapper) CreateProjectTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateProjectTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetReport operation middleware
 func (siw *ServerInterfaceWrapper) GetReport(w http.ResponseWriter, r *http.Request) {
 
@@ -866,6 +986,56 @@ func (siw *ServerInterfaceWrapper) GetStatus(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteTask operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTask(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateTask operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTask(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1081,8 +1251,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("GET "+options.BaseURL+"/api/projects", wrapper.ListProjects)
 	m.HandleFunc("POST "+options.BaseURL+"/api/projects", wrapper.CreateProject)
 	m.HandleFunc("PUT "+options.BaseURL+"/api/projects/{id}", wrapper.UpdateProject)
+	m.HandleFunc("GET "+options.BaseURL+"/api/projects/{id}/tasks", wrapper.ListProjectTasks)
+	m.HandleFunc("POST "+options.BaseURL+"/api/projects/{id}/tasks", wrapper.CreateProjectTask)
 	m.HandleFunc("GET "+options.BaseURL+"/api/report", wrapper.GetReport)
 	m.HandleFunc("GET "+options.BaseURL+"/api/status", wrapper.GetStatus)
+	m.HandleFunc("DELETE "+options.BaseURL+"/api/tasks/{id}", wrapper.DeleteTask)
+	m.HandleFunc("PUT "+options.BaseURL+"/api/tasks/{id}", wrapper.UpdateTask)
 	m.HandleFunc("POST "+options.BaseURL+"/api/tracking/pause", wrapper.TrackingPause)
 	m.HandleFunc("POST "+options.BaseURL+"/api/tracking/resume", wrapper.TrackingResume)
 	m.HandleFunc("POST "+options.BaseURL+"/api/tracking/start", wrapper.TrackingStart)

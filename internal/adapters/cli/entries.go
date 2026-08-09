@@ -56,7 +56,7 @@ func (a *App) cmdAdd(args []string) error {
 	if kind != domain.KindWork && kind != domain.KindBreak {
 		return fmt.Errorf("ungültiger Typ %q (work oder break)", *typ)
 	}
-	id, err := a.Svc.AddEntry(kind, *project, start, end, *note)
+	id, err := a.Svc.AddEntry(kind, *project, start, end, *note, 0)
 	if err != nil {
 		return err
 	}

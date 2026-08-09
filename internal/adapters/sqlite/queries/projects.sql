@@ -21,3 +21,6 @@ UPDATE projects SET color = ?, note = ? WHERE id = ?;
 
 -- name: SetProjectCompany :exec
 UPDATE projects SET company_id = ? WHERE id = ?;
+
+-- name: SetProjectJiraKey :exec
+UPDATE projects SET jira_project_key = ? WHERE id = ?;

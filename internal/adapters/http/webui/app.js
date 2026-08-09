@@ -110,8 +110,17 @@ const S = {
   absYear: new Date().getFullYear(),
   projects: [],     // Projektliste inkl. Farbe/Notiz/Unternehmen (Projekte-Tab)
   companies: [],    // Unternehmen (Projekte-Tab, Bericht)
-  ep: null,         // Panel-Edit-Zustand: {forSel, projects, kind, extras}
+  ep: null,         // Panel-Edit-Zustand: {forSel, projects, kind, extras, taskId}
+  tasksByProject: {}, // Cache: projectId → unarchivierte Aufgaben
+  openTasks: new Set(), // Projekte-Tab: aufgeklappte Aufgabenlisten (Projekt-IDs)
 };
+
+// --- Aufgaben ---
+const taskLabel = (t) => (t.jiraKey ? t.jiraKey + " " + t.title : t.title);
+async function loadTasks(pid) {
+  if (!S.tasksByProject[pid]) S.tasksByProject[pid] = await api("GET", `/api/projects/${pid}/tasks`);
+  return S.tasksByProject[pid];
+}
 
 // --- Tabs ---
 document.querySelectorAll("nav button").forEach((b) => {
@@ -231,6 +240,7 @@ async function loadWeekChart() {
 // --- Einträge: Laden + gemeinsame Ansichtslogik ---
 async function loadEntries() {
   const from = isoDate(S.monday), to = isoDate(addDays(S.monday, 6));
+  S.tasksByProject = {}; // JIRA-Sync kann neue Aufgaben gebracht haben
   try {
     [S.entries, S.weekReport] = await Promise.all([
       api("GET", `/api/entries?from=${from}&to=${to}`),
@@ -481,6 +491,9 @@ function epInit(b) {
     orig: (b.entry ? b.entry.projects || [] : parts).slice(),
     // Projekte des Blocks, die nicht (mehr) in der Projektliste stehen — bleiben wählbar
     extras: parts.filter((x) => !known.some((k) => k.toLowerCase() === x.toLowerCase())),
+    taskId: b.entry ? b.entry.taskId || 0 : 0,
+    // Label der gespeicherten Aufgabe — hält archivierte Aufgaben wählbar
+    taskFallback: b.entry && b.entry.taskId ? { id: b.entry.taskId, label: b.entry.task || "#" + b.entry.taskId } : null,
   };
   $("#ep-week").checked = false;
   $("#ep-note").value = b.note;
@@ -527,6 +540,37 @@ function renderChips() {
   wrap.appendChild(pause);
 }
 
+// Aufgaben-Auswahl: Aufgaben der gewählten Projekte, "keine" als Default.
+// Wird das Projekt der gewählten Aufgabe abgewählt, springt sie auf 0 —
+// spiegelt die Server-Validierung, statt sie beim Speichern auszulösen.
+async function renderTaskSelect() {
+  const sel = $("#ep-task"), ep = S.ep;
+  if (!ep || ep.kind === "break" || !ep.projects.length) {
+    sel.hidden = true;
+    if (ep) ep.taskId = 0;
+    return;
+  }
+  const pids = ep.projects
+    .map((n) => (S.projects.find((p) => p.name.toLowerCase() === n.toLowerCase()) || {}).id)
+    .filter(Boolean);
+  let tasks = [];
+  try { for (const pid of pids) tasks = tasks.concat(await loadTasks(pid)); } catch { /* unkritisch */ }
+  if (S.ep !== ep) return; // Auswahl hat inzwischen gewechselt
+  if (ep.taskId && !tasks.some((t) => t.id === ep.taskId)) {
+    const key = (a) => a.map((x) => x.toLowerCase()).sort().join("+");
+    if (ep.taskFallback && key(ep.projects) === key(ep.orig)) {
+      tasks = tasks.concat({ id: ep.taskFallback.id, title: ep.taskFallback.label, jiraKey: "" });
+    } else {
+      ep.taskId = 0;
+    }
+  }
+  sel.hidden = !tasks.length;
+  if (!tasks.length) return;
+  sel.innerHTML = '<option value="0">– keine Aufgabe –</option>' +
+    tasks.map((t) => `<option value="${t.id}"${t.id === ep.taskId ? " selected" : ""}>${esc(taskLabel(t))}</option>`).join("");
+  sel.onchange = () => { ep.taskId = Number(sel.value); };
+}
+
 function renderPanel() {
   const b = selectedBlock();
   $("#ep-empty").hidden = !!b;
@@ -544,6 +588,7 @@ function renderPanel() {
   $("#ep-from").value = b.entry ? clock(b.entry.start) : fmtH(b.f);
   $("#ep-to").value = b.entry ? (live ? "" : clock(b.entry.end)) : fmtH(b.t);
   renderChips();
+  renderTaskSelect();
   const weekRow = $("#ep-week-row");
   weekRow.hidden = !!b.draft || !S.ep.orig.length;
   $("#ep-week-label").textContent = `Änderung auf alle ${S.ep.orig.join("+")}-Blöcke dieser Woche anwenden`;
@@ -560,6 +605,7 @@ $("#ep-save").onclick = async () => {
     kind: S.ep.kind,
     projects: S.ep.kind === "break" ? [] : S.ep.projects,
     note: $("#ep-note").value,
+    taskId: S.ep.kind === "break" ? 0 : S.ep.taskId || 0,
     start: new Date(`${dateIso}T${fromV}:00`).toISOString(),
   };
   if (toV) {
@@ -593,7 +639,7 @@ async function dupEntry(e) {
   const dur = new Date(e.end) - new Date(e.start);
   try {
     const res = await api("POST", "/api/entries", {
-      kind: e.kind, projects: e.projects || [], note: e.note || "",
+      kind: e.kind, projects: e.projects || [], note: e.note || "", taskId: e.taskId || 0,
       start: e.end, end: new Date(new Date(e.end).getTime() + dur).toISOString(),
     });
     S.selBlock = res.id;
@@ -683,7 +729,7 @@ function rowEl(e) {
     `<span class="mono muted-c">${dur}</span>` +
     `<span><span class="chip ${isBreak ? "chip-break" : "chip-work"}">${isBreak ? "Pause" : "Arbeit"}</span></span>` +
     `<span class="proj-chips">${(e.projects || []).map(projChip).join(" ")}</span>` +
-    `<span class="muted-c ellip">${esc(e.note || "")}</span>` +
+    `<span class="muted-c ellip">${e.task ? `<span class="chip chip-task">${esc(e.task)}</span> ` : ""}${esc(e.note || "")}</span>` +
     `<span class="lr-actions"><button class="rowbtn" data-a="edit">Bearbeiten</button>` +
     `<button class="rowbtn" data-a="dup" title="Duplizieren">⧉</button>` +
     `<button class="rowbtn danger" data-a="del" title="Löschen">×</button></span>`;
@@ -798,6 +844,7 @@ async function loadProjectsTab() {
       api("GET", `/api/report?from=${isoDate(mon)}&to=${isoDate(addDays(mon, 6))}`),
     ]);
   } catch (e) { toast(e.message); return; }
+  S.tasksByProject = {}; // Aufgaben-Mutationen in diesem Tab invalidieren den Cache
   const week = Object.fromEntries((rep.projects || []).map((p) => [p.name.toLowerCase(), p.minutes]));
   const tbody = $("#projects-table tbody");
   tbody.innerHTML = "";
@@ -814,24 +861,96 @@ async function loadProjectsTab() {
       `<td><input class="proj-note" placeholder="Notiz"></td>` +
       `<td><select class="proj-comp"><option value="0">–</option>${(S.companies || []).map((co) =>
         `<option value="${co.id}"${p.companyId === co.id ? " selected" : ""}>${esc(co.name)}</option>`).join("")}</select></td>` +
+      `<td><input class="proj-jira" placeholder="ABC" title="JIRA-Projekt-Key — Issues landen als Aufgaben"></td>` +
       `<td><span class="swatches">${PALETTE.map((col) =>
         `<button class="swatch${p.color === col ? " active" : ""}" style="background:${col}" data-c="${col}" title="${col}"></button>`).join("")}</span></td>` +
       `<td class="mono">${week[p.name.toLowerCase()] ? hm(week[p.name.toLowerCase()]) : "–"}</td>` +
-      `<td><button class="rowbtn">Archivieren</button></td>`;
+      `<td><button class="rowbtn proj-tasks">Aufgaben${S.openTasks.has(p.id) ? " ▴" : " ▾"}</button></td>` +
+      `<td><button class="rowbtn proj-arch">Archivieren</button></td>`;
     const noteEl = tr.querySelector(".proj-note");
     noteEl.value = p.note || "";
     noteEl.onchange = (ev) => patch(p.id, { note: ev.target.value });
+    const jiraEl = tr.querySelector(".proj-jira");
+    jiraEl.value = p.jiraKey || "";
+    jiraEl.onchange = (ev) => patch(p.id, { jiraKey: ev.target.value.trim().toUpperCase() });
     tr.querySelector(".proj-comp").onchange = (ev) => patch(p.id, { companyId: Number(ev.target.value) });
     tr.querySelectorAll(".swatch").forEach((sw) => { sw.onclick = () => patch(p.id, { color: sw.dataset.c }); });
-    tr.querySelector(".rowbtn").onclick = () => {
+    tr.querySelector(".proj-tasks").onclick = () => {
+      S.openTasks.has(p.id) ? S.openTasks.delete(p.id) : S.openTasks.add(p.id);
+      loadProjectsTab();
+    };
+    tr.querySelector(".proj-arch").onclick = () => {
       if (confirm(`Projekt "${p.name}" archivieren?`)) patch(p.id, { archived: true });
     };
     tbody.appendChild(tr);
+    if (S.openTasks.has(p.id)) tbody.appendChild(taskRowEl(p));
   }
   if (!S.projects.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="muted-c">Noch keine Projekte — oben anlegen oder einfach einen Eintrag mit Projektnamen starten.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="muted-c">Noch keine Projekte — oben anlegen oder einfach einen Eintrag mit Projektnamen starten.</td></tr>';
   }
   renderCompanies();
+}
+
+// Aufgaben-Zeile unter einem Projekt: JIRA-Aufgaben read-only, lokale editierbar, Add-Input.
+function taskRowEl(p) {
+  const tr = document.createElement("tr");
+  tr.className = "task-row";
+  const td = document.createElement("td");
+  td.colSpan = 8;
+  td.innerHTML = '<span class="muted-c small">Lade Aufgaben…</span>';
+  tr.appendChild(td);
+  (async () => {
+    let tasks;
+    try { tasks = await api("GET", `/api/projects/${p.id}/tasks?includeArchived=true`); }
+    catch (e) { td.innerHTML = `<span class="muted-c small">${esc(e.message)}</span>`; return; }
+    td.innerHTML = "";
+    if (!tasks.length) {
+      td.insertAdjacentHTML("afterbegin",
+        '<p class="muted-c small nomargin">Keine Aufgaben. JIRA-Key in der Zeile darüber setzen für den Import — oder unten eine eigene anlegen.</p>');
+    }
+    for (const t of tasks) {
+      const row = document.createElement("div");
+      row.className = "task-item" + (t.archived ? " task-archived" : "");
+      if (t.jiraKey) {
+        row.innerHTML = `<span class="chip chip-task">${esc(t.jiraKey)}</span>` +
+          `<span class="ellip">${esc(t.title)}</span>` +
+          `<span class="muted-c small">JIRA${t.archived ? " · archiviert" : ""}</span>`;
+      } else {
+        row.innerHTML = '<input class="task-title">' +
+          `<button class="rowbtn task-arch">${t.archived ? "Reaktivieren" : "Archivieren"}</button>` +
+          '<button class="rowbtn danger task-del" title="Löschen">×</button>';
+        const inp = row.querySelector(".task-title");
+        inp.value = t.title;
+        inp.onchange = async () => {
+          try { await api("PUT", "/api/tasks/" + t.id, { title: inp.value }); } catch (e) { toast(e.message); }
+          loadProjectsTab();
+        };
+        row.querySelector(".task-arch").onclick = async () => {
+          try { await api("PUT", "/api/tasks/" + t.id, { archived: !t.archived }); } catch (e) { toast(e.message); }
+          loadProjectsTab();
+        };
+        row.querySelector(".task-del").onclick = async () => {
+          if (!confirm(`Aufgabe "${t.title}" löschen?`)) return;
+          try { await api("DELETE", "/api/tasks/" + t.id); } catch (e) { toast(e.message); }
+          loadProjectsTab();
+        };
+      }
+      td.appendChild(row);
+    }
+    const add = document.createElement("div");
+    add.className = "task-add";
+    add.innerHTML = '<input placeholder="Neue Aufgabe…"><button class="rowbtn">＋ Anlegen</button>';
+    const inp = add.querySelector("input");
+    const submit = async () => {
+      if (!inp.value.trim()) return;
+      try { await api("POST", `/api/projects/${p.id}/tasks`, { title: inp.value.trim() }); } catch (e) { toast(e.message); }
+      loadProjectsTab();
+    };
+    add.querySelector("button").onclick = submit;
+    inp.onkeydown = (ev) => { if (ev.key === "Enter") submit(); };
+    td.appendChild(add);
+  })();
+  return tr;
 }
 
 // --- Unternehmen ---

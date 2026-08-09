@@ -220,6 +220,11 @@ func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request, params api
 		writeErr(w, err)
 		return
 	}
+	taskLabels, err := h.taskLabels()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
 	out := make([]api.Entry, len(entries))
 	for i, e := range entries {
 		out[i] = api.Entry{
@@ -234,6 +239,10 @@ func (h *Handler) ListEntries(w http.ResponseWriter, r *http.Request, params api
 			end := e.End.In(h.Loc)
 			out[i].End = &end
 		}
+		if e.TaskID != 0 {
+			out[i].TaskId = optInt(e.TaskID)
+			out[i].Task = optStr(taskLabels[e.TaskID])
+		}
 		for _, pid := range e.ProjectIDs {
 			out[i].Projects = append(out[i].Projects, names[pid])
 		}
@@ -246,7 +255,11 @@ func (h *Handler) CreateEntry(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	id, err := h.Svc.AddEntry(domain.Kind(body.Kind), joinProjects(body.Projects), body.Start, body.End, deref(body.Note))
+	taskID := int64(0)
+	if body.TaskId != nil {
+		taskID = *body.TaskId
+	}
+	id, err := h.Svc.AddEntry(domain.Kind(body.Kind), joinProjects(body.Projects), body.Start, body.End, deref(body.Note), taskID)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -263,6 +276,7 @@ func (h *Handler) UpdateEntry(w http.ResponseWriter, r *http.Request, id int64) 
 		Start: body.Start,
 		End:   body.End,
 		Note:  body.Note,
+		Task:  body.TaskId,
 	}
 	if body.Projects != nil {
 		spec := joinProjects(body.Projects)
@@ -298,7 +312,7 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request, params ap
 	}
 	out := make([]api.Project, len(projects))
 	for i, p := range projects {
-		out[i] = api.Project{Id: p.ID, Name: p.Name, Archived: p.Archived, Color: optStr(p.Color), Note: optStr(p.Note), CompanyId: optInt(p.CompanyID)}
+		out[i] = api.Project{Id: p.ID, Name: p.Name, Archived: p.Archived, Color: optStr(p.Color), Note: optStr(p.Note), CompanyId: optInt(p.CompanyID), JiraKey: optStr(p.JiraKey)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -344,6 +358,82 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request, id int64
 			writeErr(w, err)
 			return
 		}
+	}
+	if body.JiraKey != nil {
+		if err := h.Svc.SetProjectJiraKey(id, *body.JiraKey); err != nil {
+			writeErr(w, err)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Tasks ---
+
+// taskLabels liefert Anzeige-Labels aller Aufgaben ("KEY Titel" bzw. Titel).
+func (h *Handler) taskLabels() (map[int64]string, error) {
+	tasks, err := h.Svc.AllTasks()
+	if err != nil {
+		return nil, err
+	}
+	labels := map[int64]string{}
+	for _, t := range tasks {
+		if t.JiraKey != "" {
+			labels[t.ID] = t.JiraKey + " " + t.Title
+		} else {
+			labels[t.ID] = t.Title
+		}
+	}
+	return labels, nil
+}
+
+func toAPITask(t domain.Task) api.Task {
+	return api.Task{Id: t.ID, ProjectId: t.ProjectID, Title: t.Title, JiraKey: optStr(t.JiraKey), Archived: t.Archived}
+}
+
+func (h *Handler) ListProjectTasks(w http.ResponseWriter, r *http.Request, id int64, params api.ListProjectTasksParams) {
+	include := params.IncludeArchived != nil && *params.IncludeArchived
+	tasks, err := h.Svc.Tasks(id, include)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	out := make([]api.Task, len(tasks))
+	for i, t := range tasks {
+		out[i] = toAPITask(t)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Handler) CreateProjectTask(w http.ResponseWriter, r *http.Request, id int64) {
+	var body api.CreateProjectTaskJSONRequestBody
+	if !decode(w, r, &body) {
+		return
+	}
+	t, err := h.Svc.CreateTask(id, body.Title)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, toAPITask(t))
+}
+
+func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request, id int64) {
+	var body api.UpdateTaskJSONRequestBody
+	if !decode(w, r, &body) {
+		return
+	}
+	if err := h.Svc.UpdateTask(id, body.Title, body.Archived); err != nil {
+		writeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) DeleteTask(w http.ResponseWriter, r *http.Request, id int64) {
+	if err := h.Svc.DeleteTask(id); err != nil {
+		writeErr(w, err)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

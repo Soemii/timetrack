@@ -108,6 +108,9 @@ func (a *App) cmdInit() error {
 	if err := a.promptOutlook(r); err != nil {
 		return err
 	}
+	if err := a.promptJira(r); err != nil {
+		return err
+	}
 
 	fmt.Fprintln(a.Stdout, "")
 	fmt.Fprintln(a.Stdout, "Eingerichtet. Tagessoll:")
@@ -152,6 +155,35 @@ func (a *App) promptOutlook(r *bufio.Reader) error {
 	return a.Svc.SaveOutlookSettings(url, rules)
 }
 
+// promptJira fragt JIRA-URL und Personal Access Token ab (Server/DC).
+// Bestehende URL ist der Default; "-" löscht sie. Leerer Token bei gesetztem
+// Token behält den alten. ponytail: Echo beim Token-Prompt; x/term erst bei Bedarf.
+func (a *App) promptJira(r *bufio.Reader) error {
+	set, err := a.Svc.JiraSettings()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(a.Stdout, "")
+	fmt.Fprintln(a.Stdout, "JIRA-Import (optional, Server/DC): dir zugewiesene Issues werden Aufgaben, \"-\" entfernt die URL")
+	url := a.prompt(r, "JIRA-Basis-URL", set.BaseURL)
+	if url == "-" {
+		return a.Svc.SaveJiraSettings("", "")
+	}
+	token := ""
+	if url != "" {
+		def := ""
+		if set.TokenSet {
+			def = "(gesetzt)"
+		}
+		token = a.prompt(r, "Personal Access Token", def)
+		if token == "(gesetzt)" {
+			token = "" // Default übernommen = alten Token behalten
+		}
+		fmt.Fprintln(a.Stdout, "Zuordnung: im Web-UI (Projekte-Tab) pro Projekt den JIRA-Projekt-Key hinterlegen.")
+	}
+	return a.Svc.SaveJiraSettings(url, token)
+}
+
 func (a *App) printWeekdayHours(wh domain.WeekdayHours) {
 	order := []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday, time.Saturday, time.Sunday}
 	for _, wd := range order {
@@ -183,14 +215,26 @@ func (a *App) cmdConfig(args []string) error {
 	}
 	if ol.URL == "" {
 		fmt.Fprintln(a.Stdout, "Outlook-Import: aus")
+	} else {
+		fmt.Fprintf(a.Stdout, "Outlook-ICS-URL: %s\n", ol.URL)
+		for _, ru := range ol.Rules {
+			fmt.Fprintf(a.Stdout, "  Regel: Betreff enthält %q → Projekt %s\n", ru.Contains, ru.Project)
+		}
+		if ol.LastErr != "" {
+			fmt.Fprintf(a.Stdout, "Letzter Outlook-Abruf fehlgeschlagen: %s\n", ol.LastErr)
+		}
+	}
+	ji, err := a.Svc.JiraSettings()
+	if err != nil {
+		return err
+	}
+	if ji.BaseURL == "" {
+		fmt.Fprintln(a.Stdout, "JIRA-Import: aus")
 		return nil
 	}
-	fmt.Fprintf(a.Stdout, "Outlook-ICS-URL: %s\n", ol.URL)
-	for _, ru := range ol.Rules {
-		fmt.Fprintf(a.Stdout, "  Regel: Betreff enthält %q → Projekt %s\n", ru.Contains, ru.Project)
-	}
-	if ol.LastErr != "" {
-		fmt.Fprintf(a.Stdout, "Letzter Outlook-Abruf fehlgeschlagen: %s\n", ol.LastErr)
+	fmt.Fprintf(a.Stdout, "JIRA-URL: %s (Token: %s)\n", ji.BaseURL, map[bool]string{true: "gesetzt", false: "fehlt"}[ji.TokenSet])
+	if ji.LastErr != "" {
+		fmt.Fprintf(a.Stdout, "Letzter JIRA-Abruf fehlgeschlagen: %s\n", ji.LastErr)
 	}
 	return nil
 }

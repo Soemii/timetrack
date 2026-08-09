@@ -2,8 +2,8 @@
 SELECT * FROM entries WHERE end_ts IS NULL LIMIT 1;
 
 -- name: CreateEntry :one
-INSERT INTO entries (kind, start_ts, end_ts, note)
-VALUES (?, ?, ?, ?)
+INSERT INTO entries (kind, start_ts, end_ts, note, task_id)
+VALUES (?, ?, ?, ?, ?)
 RETURNING id;
 
 -- name: CloseEntry :exec
@@ -13,7 +13,7 @@ UPDATE entries SET end_ts = ? WHERE id = ?;
 SELECT * FROM entries WHERE id = ?;
 
 -- name: UpdateEntry :exec
-UPDATE entries SET kind = ?, start_ts = ?, end_ts = ?, note = ?
+UPDATE entries SET kind = ?, start_ts = ?, end_ts = ?, note = ?, task_id = ?
 WHERE id = ?;
 
 -- name: DeleteEntry :exec

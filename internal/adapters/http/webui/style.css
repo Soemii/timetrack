@@ -212,3 +212,13 @@ tbody tr:hover td { background: var(--hover); }
 /* --- Toast --- */
 #toast { position: fixed; bottom: 1.2rem; left: 50%; transform: translateX(-50%); background: var(--warn); color: #fff; padding: .6rem 1.1rem; border-radius: 8px; max-width: 90%; z-index: 10; font-size: 13px; }
 #toast.info { background: var(--ok); }
+
+/* --- Aufgaben (JIRA-Integration) --- */
+.proj-jira { width: 5.5em; text-transform: uppercase; }
+.chip-task { background: var(--row); color: var(--muted); }
+tr.task-row > td { background: var(--row); padding: 8px 14px 10px 34px; }
+.task-item { display: flex; gap: 10px; align-items: center; padding: 3px 0; }
+.task-item.task-archived { opacity: .55; }
+.task-item .task-title { flex: 1; max-width: 26em; padding: 4px 10px; }
+.task-add { display: flex; gap: 8px; padding-top: 6px; }
+.task-add input { padding: 4px 10px; width: 18em; }

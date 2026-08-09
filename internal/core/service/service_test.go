@@ -15,6 +15,7 @@ type fakeRepo struct {
 	projects  map[int64]domain.Project
 	absences  map[int64]domain.Absence
 	companies map[int64]domain.Company
+	tasks     map[int64]domain.Task
 	config    map[string]string
 	nextID    int64
 }
@@ -25,6 +26,7 @@ func newFake() *fakeRepo {
 		projects:  map[int64]domain.Project{},
 		absences:  map[int64]domain.Absence{},
 		companies: map[int64]domain.Company{},
+		tasks:     map[int64]domain.Task{},
 		config:    map[string]string{},
 	}
 }
@@ -148,6 +150,88 @@ func (f *fakeRepo) SetProjectCompany(id, companyID int64) error {
 	p.CompanyID = companyID
 	f.projects[id] = p
 	return nil
+}
+
+func (f *fakeRepo) SetProjectJiraKey(id int64, key string) error {
+	p, ok := f.projects[id]
+	if !ok {
+		return errors.New("nicht gefunden")
+	}
+	p.JiraKey = key
+	f.projects[id] = p
+	return nil
+}
+
+func (f *fakeRepo) TasksForProject(projectID int64, includeArchived bool) ([]domain.Task, error) {
+	var out []domain.Task
+	for _, t := range f.tasks {
+		if t.ProjectID == projectID && (includeArchived || !t.Archived) {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) Tasks() ([]domain.Task, error) {
+	var out []domain.Task
+	for _, t := range f.tasks {
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) GetTask(id int64) (domain.Task, error) {
+	t, ok := f.tasks[id]
+	if !ok {
+		return domain.Task{}, errors.New("not found")
+	}
+	return t, nil
+}
+
+func (f *fakeRepo) CreateTask(projectID int64, title string, _ time.Time) (int64, error) {
+	id := f.id()
+	f.tasks[id] = domain.Task{ID: id, ProjectID: projectID, Title: title}
+	return id, nil
+}
+
+func (f *fakeRepo) UpsertJiraTask(projectID int64, key, title string, _ time.Time) (int64, error) {
+	for _, t := range f.tasks {
+		if t.ProjectID == projectID && t.JiraKey == key {
+			t.Title = title
+			t.Archived = false
+			f.tasks[t.ID] = t
+			return t.ID, nil
+		}
+	}
+	id := f.id()
+	f.tasks[id] = domain.Task{ID: id, ProjectID: projectID, JiraKey: key, Title: title}
+	return id, nil
+}
+
+func (f *fakeRepo) RenameTask(id int64, title string) error {
+	t := f.tasks[id]
+	t.Title = title
+	f.tasks[id] = t
+	return nil
+}
+
+func (f *fakeRepo) SetTaskArchived(id int64, archived bool) error {
+	t := f.tasks[id]
+	t.Archived = archived
+	f.tasks[id] = t
+	return nil
+}
+
+func (f *fakeRepo) DeleteTask(id int64) error { delete(f.tasks, id); return nil }
+
+func (f *fakeRepo) CountEntriesForTask(id int64) (int64, error) {
+	var n int64
+	for _, e := range f.entries {
+		if e.TaskID == id {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (f *fakeRepo) Companies() ([]domain.Company, error) {
@@ -327,7 +411,7 @@ func TestOverlapRejection(t *testing.T) {
 	svc, now := testService(t)
 	day := time.Date(2026, 7, 20, 0, 0, 0, 0, berlin)
 	add := func(from, to int) (int64, error) {
-		return svc.AddEntry(domain.KindWork, "", day.Add(time.Duration(from)*time.Hour), day.Add(time.Duration(to)*time.Hour), "")
+		return svc.AddEntry(domain.KindWork, "", day.Add(time.Duration(from)*time.Hour), day.Add(time.Duration(to)*time.Hour), "", 0)
 	}
 	id, err := add(9, 12)
 	if err != nil {
@@ -391,10 +475,10 @@ func TestAbsencesAndReport(t *testing.T) {
 func TestReportProjects(t *testing.T) {
 	svc, _ := testService(t)
 	day := time.Date(2026, 7, 20, 0, 0, 0, 0, berlin)
-	if _, err := svc.AddEntry(domain.KindWork, "acme", day.Add(9*time.Hour), day.Add(15*time.Hour), ""); err != nil {
+	if _, err := svc.AddEntry(domain.KindWork, "acme", day.Add(9*time.Hour), day.Add(15*time.Hour), "", 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddEntry(domain.KindWork, "intern", day.Add(15*time.Hour), day.Add(17*time.Hour), ""); err != nil {
+	if _, err := svc.AddEntry(domain.KindWork, "intern", day.Add(15*time.Hour), day.Add(17*time.Hour), "", 0); err != nil {
 		t.Fatal(err)
 	}
 	d := domain.Date{Year: 2026, Month: 7, Day: 20}
@@ -417,10 +501,10 @@ func TestMultiProjectSplit(t *testing.T) {
 	svc, _ := testService(t)
 	day := time.Date(2026, 7, 20, 0, 0, 0, 0, berlin)
 	// 6h auf acme+intern (dedupe: "Acme" doppelt), 2h nur acme
-	if _, err := svc.AddEntry(domain.KindWork, "acme+intern+Acme", day.Add(9*time.Hour), day.Add(15*time.Hour), ""); err != nil {
+	if _, err := svc.AddEntry(domain.KindWork, "acme+intern+Acme", day.Add(9*time.Hour), day.Add(15*time.Hour), "", 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AddEntry(domain.KindWork, "acme", day.Add(15*time.Hour), day.Add(17*time.Hour), ""); err != nil {
+	if _, err := svc.AddEntry(domain.KindWork, "acme", day.Add(15*time.Hour), day.Add(17*time.Hour), "", 0); err != nil {
 		t.Fatal(err)
 	}
 	d := domain.Date{Year: 2026, Month: 7, Day: 20}

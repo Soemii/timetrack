@@ -14,7 +14,7 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-//go:generate sqlc generate
+//go:generate sqlc generate -f ../../../sqlc.yaml
 
 // Open öffnet die Datenbank und bringt das Schema auf den neuesten Stand.
 func Open(path string) (*sql.DB, error) {
